@@ -1,0 +1,10 @@
+# FaithEval — contextual faithfulness. Evaluates the model's own generations.
+# One run per task in `tasks`.
+enabled: true
+python: null                 # null => use the global `python`
+tasks: [unanswerable, inconsistent, counterfactual]
+split: test
+strict_match: false          # use each task's strict valid-phrase list
+num_samples: null            # null => use the global `num_samples`
+max_new_tokens: 256
+extra_args: []               # raw flags forwarded to src/run_eval.py, e.g. ["--do-sample"]

@@ -1,0 +1,15 @@
+# @package _global_
+# Shared model target for every benchmark. `id` is passed as --model-id /
+# --model_path / --model-path (each benchmark's own flag name) and accepts a Hub
+# id, a local full-model directory, or a PEFT/LoRA adapter checkpoint (e.g. a
+# `final_checkpoint` from SP-DPO-Base — auto-detected and merged onto its base).
+#
+# This tiny instruct model is a fast, CPU-friendly default for smoke tests.
+model:
+  id: "Qwen/Qwen2.5-0.5B-Instruct"
+  base_model_id: null      # base to merge a LoRA adapter onto (if not in its config)
+  tokenizer_id: null       # tokenizer, if not saved alongside the weights
+  cache_dir: null          # Hugging Face cache directory
+  dtype: "bfloat16"        # bfloat16 | float16 | float32 (use float32 on CPU)
+  device_map: "auto"       # for FaithEval / HaluEval / RAGTruth (--device-map)
+  device_index: -1         # for TruthfulQA (--device; -1 = CPU, 0 = cuda:0)

@@ -1,0 +1,10 @@
+# TruthfulQA — truthfulness. Evaluates the model's own generations / log-probs.
+# `mc` (MC1/MC2) needs only torch+transformers; `bleu`/`rouge`/`bleurt` need the
+# benchmark's `legacy-metrics` extra (t5 → TensorFlow). No global num_samples
+# cap here — TruthfulQA scores the whole `input_path` CSV.
+enabled: true
+python: null
+metrics: [mc]                # any of: mc, bleu, rouge, bleurt, judge, info
+preset: qa                   # qa | null | chat | long | help | harm
+input_path: TruthfulQA.csv   # relative to the TruthfulQA-reproduce folder
+extra_args: []               # raw flags forwarded to `python -m truthfulqa.evaluate`

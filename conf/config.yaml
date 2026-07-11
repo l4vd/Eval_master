@@ -1,0 +1,48 @@
+# Hydra composition root for the central benchmark launcher.
+#
+# One shared `model` block feeds all four benchmarks (their model interfaces were
+# unified: a Hub id, a local checkpoint, or a LoRA/PEFT adapter, all auto-detected).
+# Each benchmark has its own config group so you can tune its subcomponents, e.g.:
+#   ./run_all.sh model.id=/path/to/final_checkpoint
+#   ./run_all.sh run='[faitheval,ragtruth]' faitheval.tasks='[unanswerable]'
+#   ./run_all.sh model.dtype=float32 model.device_map=cpu num_samples=5 dry_run=true
+defaults:
+  - model: qwen_tiny
+  - faitheval: default
+  - truthfulqa: default
+  - halueval: default
+  - ragtruth: default
+  - _self_
+
+# Which benchmarks to run, in order. Subset the four to run only some.
+run: [faitheval, truthfulqa, halueval, ragtruth]
+
+# Global default sample cap for benchmarks that support it (FaithEval, HaluEval,
+# RAGTruth). null = full dataset. Each benchmark can override with its own
+# `<benchmark>.num_samples`. NOTE: TruthfulQA has no sample cap (it scores the
+# whole questions CSV); pre-truncate the CSV if you need a subset there.
+num_samples: null
+
+# Interpreter used to launch each benchmark. Override globally with `python=...`
+# or per-benchmark with `<benchmark>.python=...` (e.g. one venv per folder).
+python: python
+
+# Print the commands instead of running them.
+dry_run: false
+
+# Keep going if one benchmark exits non-zero (a per-benchmark summary is printed
+# at the end either way).
+continue_on_error: true
+
+# All artifacts land under here (per-benchmark subdirectories). Defaults to the
+# Hydra run directory so --multirun / timestamped runs isolate automatically.
+output_dir: ${hydra:runtime.output_dir}
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: outputs/multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}

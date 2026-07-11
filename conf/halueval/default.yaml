@@ -1,0 +1,9 @@
+# HaluEval — hallucination recognition. Uses the model as the Yes/No judge
+# (--backend hf). One run per task in `tasks`.
+enabled: true
+python: null
+tasks: [qa, dialogue, summarization]
+backend: hf                  # hf (local judge) | openai (reproduction, needs OPENAI_API_KEY)
+num_samples: null            # null => use the global `num_samples`
+max_new_tokens: 16           # a Yes/No answer is short
+extra_args: []               # raw flags forwarded to evaluation/evaluate.py

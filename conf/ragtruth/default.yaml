@@ -1,0 +1,16 @@
+# RAGTruth — serverless two-stage RAG hallucination eval. Your generation model
+# (the shared `model`) produces responses; a detector model flags them. No server.
+enabled: true
+python: null
+stage: all                   # generate | detect | all
+split: null                  # null/all, or train | dev | test
+num_samples: null            # null => use the global `num_samples`
+task_types: null             # null = all, or a subset of [QA, Summary, Data2txt]
+gold_f1: false               # reproduction mode: score detector vs gold labels (skips generation)
+# The hallucination detector (Stage 2). Defaults to the RAGTruth authors' weights;
+# override `ragtruth.detector.id=<path>` to use your own trained detector.
+detector:
+  id: "CodingLL/RAGTruth_Eval"
+  base_model_id: null        # base for a LoRA detector adapter
+  tokenizer_id: null
+extra_args: []               # raw flags forwarded to src/run_eval.py
