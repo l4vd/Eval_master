@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ragtruth-eval"
+version = "0.1.0"
+description = "Serverless two-stage RAGTruth evaluation (your generation model + a hallucination detector), no TGI/Docker server."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+
+# Core deps for the in-process two-stage pipeline (generation model + detector).
+dependencies = [
+    "torch>=2.1",
+    "transformers>=4.44",
+    "accelerate>=0.33",
+    "datasets>=2.20",
+    "peft>=0.11",
+    "pandas>=1.5",
+    "scikit-learn>=1.1",
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+ragtruth-eval = "ragtruth_eval.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

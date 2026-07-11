@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "truthfulqa"
+version = "0.1.0"
+description = "Evaluation code for the TruthfulQA benchmark, with local-checkpoint / LoRA model support."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+
+# Core deps for the generation + multiple-choice (MC1/MC2) evaluation paths,
+# including running your own checkpoint / LoRA adapter via `--model_path`
+# (see truthfulqa/hf_local.py).
+dependencies = [
+    "torch>=2.1",
+    "transformers>=4.44",
+    "datasets>=2.18",
+    "peft>=0.11",
+    "pandas>=1.5",
+    "numpy>=1.24",
+    "scikit-learn>=1.1",
+    "sentencepiece>=0.1.99",   # T5 / UnifiedQA tokenizers
+]
+
+[project.optional-dependencies]
+# GPT-3 answer generation and the GPT-judge / GPT-info metrics (`--metrics judge info`).
+# Legacy reproduction path; needs OpenAI API access. Imported lazily.
+openai = ["openai>=0.27"]
+# BLEU / ROUGE (via t5) and BLEURT (via datasets.load_metric). These are the
+# original paper's similarity metrics and pull a heavy, dated stack:
+#   * t5 requires TensorFlow;
+#   * datasets.load_metric was removed in datasets 3.0, so BLEURT needs <3.0.
+# All are imported lazily, so they are only required when you actually pass
+# `--metrics bleu`, `--metrics rouge`, or `--metrics bleurt`.
+legacy-metrics = [
+    "t5>=0.9.0",
+    "datasets<3.0",
+]
+dev = ["pytest>=8.0"]
+
+[tool.setuptools.packages.find]
+include = ["truthfulqa*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

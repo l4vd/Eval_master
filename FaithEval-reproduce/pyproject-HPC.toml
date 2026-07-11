@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "faitheval"
+version = "0.1.0"
+description = "Evaluation CLI for the FaithEval contextual-faithfulness benchmark — HPC / Linux variant pinned to the cluster's known-good stack (torch 2.2.2, transformers 4.41, Python 3.12)."
+readme = "README.md"
+# The HPC provides Python 3.12 modules and the known-good cluster env (`topollm`)
+# pins 3.12; torch 2.2.2 wheels exist for 3.12. Stay inside that window.
+requires-python = ">=3.12,<3.13"
+license = { file = "LICENSE.txt" }
+
+# --- Versioning policy for this file -------------------------------------------
+# Libraries SHARED with the cluster's already-working `topollm` / `SP-DPO-Base`
+# environment are pinned to the SAME ranges that are known to resolve on the HPC
+# PyPI mirror (marked "[cluster]" below). This benchmark has no libraries the
+# cluster base doesn't already carry, so there are no "[added]" pins here.
+#
+# No vLLM in this file: vllm needs torch >=2.4, which conflicts with the
+# cluster's torch==2.2.2. FaithEval only ever uses the in-process HF pipeline
+# (`faitheval.model.HFChatGenerator`), so this is a non-issue.
+# -------------------------------------------------------------------------------
+dependencies = [
+    "torch==2.2.2",                  # [cluster] exact cluster pin
+    "transformers>=4.41,<4.42",      # [cluster] cluster allows 4.38-4.41; 4.41 keeps the newest chat templates
+    "peft>=0.10,<0.12",              # [cluster]
+    "accelerate>=0.27,<0.29",        # [cluster]
+    "datasets>=2.18,<3.0",           # [cluster] datasets <3.0
+    "pyarrow<16",                    # [cluster] keeps datasets <3.0 happy
+    "huggingface-hub>=0.23,<0.24",   # [cluster] >=0.23 required by transformers 4.41
+    "numpy>=1.26,<2",                # [cluster] torch 2.2.x requires numpy 1.x
+    "tqdm>=4.66",                    # [cluster]
+    "pyyaml>=6.0",                   # [cluster]
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    # NOTE: pre-commit / network-fetching dev tools are omitted here — the HPC
+    # compute nodes have no internet. Run those on a machine with connectivity.
+]
+
+[project.scripts]
+faitheval-eval = "faitheval.cli:main"
+
+[tool.uv]
+index-strategy = "unsafe-best-match"
+
+# The HPC compute nodes have no internet; uv must install from the cluster PyPI
+# mirror. Uncomment and set the mirror (exactly as the working `topollm` project
+# does) before running `uv sync` on the cluster:
+#
+# [[tool.uv.index]]
+# name = "cluster-mirror"
+# url = "<CLUSTER_PYPI_MIRROR_URL>"
+# default = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

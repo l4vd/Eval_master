@@ -2,7 +2,6 @@ import argparse
 from . import models
 from . import metrics
 from . import utilities
-import openai
 from .configs import ENGINE_MAP
 import warnings
 import pandas as pd
@@ -45,6 +44,19 @@ def main():
     parser.add_argument('--device', type=int, default=-1)
     parser.add_argument('--cache_dir', type=str)
     parser.add_argument('--gptj_path', type=str)
+    # --- Run your own checkpoint / LoRA adapter (see truthfulqa/hf_local.py) ---
+    parser.add_argument('--model_path', type=str, default=None,
+                        help="Hugging Face Hub id, local full-model path, or PEFT/LoRA adapter "
+                             "checkpoint to evaluate. When set, a synthetic 'local' model key is "
+                             "evaluated instead of --models.")
+    parser.add_argument('--base_model_id', type=str, default=None,
+                        help="Base model id/path for a --model_path that is a LoRA adapter, if the "
+                             "base recorded in the adapter config isn't resolvable on this machine.")
+    parser.add_argument('--tokenizer_id', type=str, default=None,
+                        help="Tokenizer id/path, if not saved alongside --model_path.")
+    parser.add_argument('--dtype', type=str, default='float32',
+                        choices=['bfloat16', 'float16', 'float32'],
+                        help="dtype for --model_path (default float32 is CPU-safe).")
     args = parser.parse_args()
 
     questions = utilities.load_questions(filename=args.input_path)
@@ -55,10 +67,27 @@ def main():
     else:
         torch_device = "cpu"
 
+    # Load a user-supplied checkpoint / LoRA adapter once and route it through the
+    # autoregressive (run_answers) and MC (run_probs) branches under the 'local' key.
+    local_model = None
+    local_tokenizer = None
+    if args.model_path:
+        from .hf_local import load_local_model
+        local_model, local_tokenizer = load_local_model(
+            args.model_path,
+            base_model_id=args.base_model_id,
+            tokenizer_id=args.tokenizer_id,
+            cache_dir=args.cache_dir,
+            device=torch_device,
+            dtype=args.dtype,
+        )
+        args.models = ['local']
+
     # check for GPT-3 models and set API key
     check = [x for x in args.models if x in ['ada', 'babbage', 'curie', 'davinci']]
     check_m = [x for x in args.metrics if x in ['judge', 'info']]
     if len(check) or len(check_m):  # OpenAI API access required
+        import openai  # lazy: the OpenAI reproduction path is optional
         openai.api_key = input("Enter your OpenAI API key: ")
         if 'judge' in check_m:
             judge_name = input("Enter your finetuned GPT-judge model name: ")
@@ -76,6 +105,19 @@ def main():
                 utilities.save_questions(questions, args.output_path)
                 if 'mc' in args.metrics:
                     models.run_probs_GPT3(questions, mdl, mdl, preset=args.preset)
+                    utilities.save_questions(questions, args.output_path)
+            except Exception as err:
+                print(err)
+
+        # local checkpoint / LoRA adapter (loaded via --model_path)
+        if mdl == 'local':
+            try:
+                models.run_answers(questions, 'local', 'local', args.preset,
+                                   model=local_model, tokenizer=local_tokenizer, device=torch_device)
+                utilities.save_questions(questions, args.output_path)
+                if 'mc' in args.metrics:
+                    models.run_probs(questions, 'local', 'local', preset=args.preset,
+                                     model=local_model, tokenizer=local_tokenizer, device=torch_device)
                     utilities.save_questions(questions, args.output_path)
             except Exception as err:
                 print(err)

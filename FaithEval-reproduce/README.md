@@ -214,6 +214,26 @@ or, equivalently, via the installed console script:
 faitheval-eval --task unanswerable --model-id meta-llama/Meta-Llama-3.1-8B-Instruct
 ```
 
+#### Install (HPC)
+
+The default `pyproject.toml` targets a modern stack. On the cluster, use the
+pinned Linux variant [`pyproject-HPC.toml`](./pyproject-HPC.toml) instead — it
+matches the known-good `topollm` / `SP-DPO-Base` cluster env (torch 2.2.2,
+transformers 4.41, Python 3.12; HF backend only, no vLLM). With `uv`:
+
+```bash
+module load Python/3.12.3 uv/0.10.2 CUDA/12.6.1   # adjust to available modules
+cp pyproject-HPC.toml pyproject.toml              # or: uv sync --project pyproject-HPC.toml
+uv sync
+```
+
+> **Mirror:** compute nodes have no internet. Before `uv sync`, uncomment the
+> `[[tool.uv.index]]` block in `pyproject-HPC.toml` and point it at the cluster
+> PyPI mirror (the same URL `topollm` / `SP-DPO-Base` use). Pre-download the
+> evaluation model, tokenizer, and dataset into the HF cache on a login node,
+> then export `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1` on
+> the compute nodes. See `SP-DPO-Base/README-HPC.md` for the full offline recipe.
+
 Useful flags (see `faitheval-eval --help` for the full list):
 
 | Flag | Purpose |
@@ -259,7 +279,8 @@ raise.
 Per-task dataset names, prompts, and scoring rules live in
 [`configs/`](./configs) as plain YAML, so new tasks or prompt variants can be
 added without touching the evaluation code. The implementation lives in
-[`src/faitheval`](./src/faitheval).
+[`src/faitheval`](./src/faitheval); see [`ARCHITECTURE.md`](./ARCHITECTURE.md)
+for the module map, data flow, and the local-path/LoRA loading path.
 
 
 ### Ethical Considerations

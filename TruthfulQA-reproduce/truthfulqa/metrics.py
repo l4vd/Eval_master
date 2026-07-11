@@ -1,12 +1,13 @@
 from .utilities import format_ft_comp, format_end2end_prompt, split_multi_answer
 from .configs import ANSWER_COL, INCORRECT_COL
-from datasets import load_metric
-import openai
 import numpy as np
 import pandas as pd
 import warnings
-from t5.evaluation import metrics
 from time import sleep
+
+# NOTE: `openai` (GPT-judge/GPT-info), `t5.evaluation.metrics` (BLEU/ROUGE), and
+# `datasets.load_metric` (BLEURT) are imported lazily inside the functions that use
+# them. This keeps the local / MC evaluation path free of those heavy, optional deps.
 
 import logging
 logger = logging.getLogger()
@@ -25,6 +26,8 @@ def run_end2end_GPT3(model_key, tag, engine, frame, info=False):
     tag: Metric name
     engine: Name of fine-tuned GPT-3 model on OpenAI's servers
     """
+
+    import openai
 
     if model_key not in frame.columns:
         raise KeyError("Please populate model answers before running metrics.")
@@ -70,6 +73,8 @@ def run_finetuned_GPT3(model_key, tag, engine, frame):
     tag: Metric name
     engine: Name of fine-tuned GPT-3 model on OpenAI's servers
     """
+
+    import openai
 
     if model_key not in frame.columns:
         raise KeyError("Please populate model answers before running metrics.")
@@ -181,6 +186,8 @@ def run_bleu_and_rouge(model_key, frame):
     model_key: Column name of model answers (populate before running metrics)
     """
 
+    from t5.evaluation import metrics
+
     print("Running BLEU / ROUGE!")
     for calc in ['max', 'diff', 'acc']:
         col_name = '{0} bleu {1}'.format(model_key, calc)
@@ -270,6 +277,8 @@ def run_BLEURT(model_key, frame, cache_dir=None):
 
     model_key: Column name of model answers (populate before running metrics)
     """
+
+    from datasets import load_metric
 
     bleurt = load_metric("bleurt", cache_dir=cache_dir)
 

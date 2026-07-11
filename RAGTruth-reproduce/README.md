@@ -5,6 +5,13 @@ RAGTruth is a word-level hallucination corpus in various tasks within the Retrie
 
 RAG has become a main technique for alleviating hallucinations in large language models (LLMs). Despite the integration of RAG, LLMs may still present unsupported or contradictory claims to the retrieved contents. In order to develop effective hallucination prevention strategies under RAG, it is important to create benchmark datasets that can measure the extent of hallucination. RAGTruth comprises nearly 18,000 naturally generated responses from diverse LLMs using RAG. These responses have undergone meticulous manual annotations at both the individual cases and word levels, incorporating evaluations of hallucination intensity.
 
+> **This fork adds a serverless, two-stage evaluation pipeline** so you can point
+> RAGTruth at **your own generation model / LoRA** without running a TGI Docker
+> server. See [**Evaluation**](#evaluation) below (jump to
+> [Run it with your own model](#run-it-with-your-own-generation-model--lora)) and
+> [`ARCHITECTURE.md`](./ARCHITECTURE.md). The original TGI-based baseline is
+> retained and documented too.
+
 ## Updates
 1. [2024/06] We released our training and evaluation code. Model weight can be found [here](https://github.com/CodingLL/RAGTruth_Eval/tree/master)
 2. [2024/02] We updated the data: we included more annotated hallucinations and added one new meta, `implicit_true`.
@@ -174,6 +181,182 @@ Llama-2-7B-chat     | 1832 | 3302 |
 Llama-2-13B-chat    | 1677 | 3799 |
 Llama-2-70B-chat    | 1395 | 2608 |
 Mistral-7B-Instruct | 1953 | 3562 |
+
+## Evaluation
+
+There are **two** ways to evaluate in this repo:
+
+1. The **original baseline** (train your own detector, serve it via a TGI Docker
+   server, predict + score) — retained for reproduction.
+2. A **new serverless, two-stage in-process pipeline** — no server, no Docker;
+   run RAGTruth end-to-end against **your own generation model** plus a
+   hallucination detector. This is the recommended path and where "run it with
+   your own model" lives.
+
+### How RAGTruth evaluation works
+
+RAGTruth is a *detection* corpus: given a RAG `(reference, response)` pair, a
+**detector model** outputs the hallucinated spans as
+`{"hallucination list": [...]}`. Two things can therefore be measured:
+
+- **Hallucination rate of a generation model** — have your model produce a RAG
+  response for each source item, then have the detector flag it. The fraction of
+  responses flagged (overall and per task type) characterizes *your* model.
+- **Detector quality (paper reproduction)** — run the detector on the corpus's
+  *original* responses and compare its predictions to the gold `labels`
+  (precision / recall / F1).
+
+### Original baseline pipeline (TGI, retained)
+
+The upstream flow, in [`baseline/`](./baseline) (see also
+[`baseline/readme.md`](./baseline/readme.md)):
+
+1. **Prepare** — `python baseline/prepare_dataset.py` merges `response.jsonl`
+   (good-quality) with `source_info.jsonl`, splits train/dev by `source_id`, and
+   writes `train.jsonl` / `dev.jsonl` / `test.jsonl`.
+2. **Train** a detector — `baseline/train.py` fine-tunes a Llama-2 model to emit
+   the `{"hallucination list": [...]}` JSON for each `[INST]`-wrapped example
+   (`baseline/dataset.py`).
+3. **Serve via TGI** — the trained detector is served with HuggingFace
+   `text-generation-inference` in Docker:
+   ```bash
+   docker run -d --name baseline --gpus '"device=7"' -v $PWD:/data --shm-size 1g \
+       -p 8300:80 ghcr.io/huggingface/text-generation-inference:2.0.1 \
+       --model-id /data/exp/baseline --dtype bfloat16 --max-total-tokens 8000 \
+       --sharded false --max-input-length 4095
+   ```
+4. **Predict + evaluate** — `baseline/predict_and_evaluate.py` fires many async
+   requests at the server and computes case-level recall/precision/F1.
+
+#### Why `http://127.0.0.1:8300` (localhost)?
+
+`predict_and_evaluate.py` talks to `AsyncInferenceClient(model="http://127.0.0.1:8300")`.
+That is **not** a remote service — it is the TGI container running on the *same
+machine*:
+
+- `docker run ... -p 8300:80` **publishes** the container's internal port `80`
+  (where TGI's HTTP server listens) to port `8300` on the **host**. So from the
+  host, `127.0.0.1:8300` reaches the containerized server.
+- Client (`predict_and_evaluate.py`) and server (the container) run on the **same
+  node**, so the loopback address `127.0.0.1` is all that's needed — no network,
+  no auth.
+
+**Why a server at all, instead of just calling the model in-process?** Throughput.
+TGI does continuous batching and token streaming, so the client can keep many
+requests in flight — here an `asyncio.Semaphore(80)` lets up to **80 concurrent**
+generations be serviced and batched together, which is far faster than a Python
+`for` loop calling `model.generate` one prompt at a time. The cost is the
+operational overhead of building an image, launching a GPU container, and
+managing the port — exactly what the new pipeline removes.
+
+> **The `--tokenizer` flag is nearly vestigial.** `predict_and_evaluate.py` builds
+> the prompt as a plain string and sends it to TGI, which tokenizes server-side
+> using the *served model's* tokenizer. The client-side `AutoTokenizer` loaded
+> from `--tokenizer` is passed to `process_dialog_to_single_turn(..., return_prompt=True)`
+> only to satisfy its signature — with `return_prompt=True` the tokenizer is never
+> actually used. The upstream code even notes this ("actually we do not need
+> tokenizer / just to meet the parameter requirements").
+
+### New serverless two-stage pipeline
+
+The new [`src/ragtruth_eval/`](./src/ragtruth_eval) package runs everything
+**in-process** — no TGI, no Docker, no localhost port. Two models, two stages:
+
+- **Stage 1 – generate** (`--stage generate`): load your generation model, produce
+  a RAG response for each source item, stream to `outputs/<run>/generations.jsonl`.
+- **Stage 2 – detect** (`--stage detect`): load the detector model, read the
+  generations, emit `{"hallucination list": [...]}`, write
+  `outputs/<run>/detections.jsonl` and `outputs/<run>/summary.json` (the
+  hallucination-rate summary).
+
+`--stage all` runs both. The detector defaults to the same decoding params the
+released detector was trained/served with; malformed JSON is repaired locally
+(the in-process greedy path can't just retry generation like the TGI client did).
+
+Install:
+
+```bash
+pip install -e .            # installs the `ragtruth-eval` console script
+```
+
+#### Run it with your own generation model / LoRA
+
+Pass your checkpoint as `--model-id` (a Hub id, a local full-model path, or a
+PEFT/LoRA adapter such as a `final_checkpoint` from the sibling `SP-DPO-Base`
+pipeline). The detector is `--detector-model-id` — the RAGTruth authors' released
+weights [`CodingLL/RAGTruth_Eval`](https://github.com/CodingLL/RAGTruth_Eval), or
+your own trained detector.
+
+```bash
+# End-to-end: your model generates, the released detector flags:
+python src/run_eval.py --stage all \
+    --model-id /path/to/final_checkpoint \
+    --detector-model-id CodingLL/RAGTruth_Eval \
+    --output-dir outputs/my-run
+
+# equivalently, via the installed console script:
+ragtruth-eval --stage all --model-id /path/to/final_checkpoint \
+    --detector-model-id CodingLL/RAGTruth_Eval
+
+# A LoRA adapter is auto-detected (adapter_config.json) and merged onto its base:
+python src/run_eval.py --stage all --model-id /path/to/lora_adapter \
+    --detector-model-id CodingLL/RAGTruth_Eval --num-samples 20
+
+# Run the two stages separately (e.g. generate on one node, detect on another):
+python src/run_eval.py --stage generate --model-id <gen> --output-dir outputs/my-run
+python src/run_eval.py --stage detect --detector-model-id <detector> --output-dir outputs/my-run
+```
+
+Useful flags (`ragtruth-eval --help` for all):
+
+| Flag | Purpose |
+| --- | --- |
+| `--stage` | `generate`, `detect`, or `all` |
+| `--model-id` / `--base-model-id` / `--tokenizer-id` | generation model (path/Hub/LoRA) |
+| `--detector-model-id` (+ `--detector-base-model-id` / `--detector-tokenizer-id`) | detector model |
+| `--split` | filter source items to `train`/`dev`/`test` (via `response.jsonl`) |
+| `--num-samples N` | use only the first N items (smoke tests) |
+| `--task-types` | restrict to `QA` / `Summary` / `Data2txt` |
+| `--gold-f1` | reproduction mode: score the detector vs. gold labels (P/R/F1), skips Stage 1 |
+| `--output-dir` | where `generations.jsonl` / `detections.jsonl` / `summary.json` go |
+
+A local `--model-id` / `--detector-model-id` that doesn't exist fails fast with a
+clear `FileNotFoundError` instead of a confusing Hub-lookup error.
+
+#### Reproduce the paper's detector F1 (no server)
+
+`--gold-f1` runs the detector over the corpus's *original* responses + gold labels
+and reports precision/recall/F1 per task — the same numbers
+`baseline/predict_and_evaluate.py` produced, but in-process:
+
+```bash
+python src/run_eval.py --stage detect --gold-f1 --split test \
+    --detector-model-id CodingLL/RAGTruth_Eval --output-dir outputs/repro
+```
+
+### Install (HPC)
+
+On the cluster use the pinned Linux variant
+[`pyproject-HPC.toml`](./pyproject-HPC.toml) (torch 2.2.2, transformers 4.41,
+Python 3.12; matches the known-good `topollm` / `SP-DPO-Base` env — **no vLLM,
+no TGI**). With `uv`:
+
+```bash
+module load Python/3.12.3 uv/0.10.2 CUDA/12.6.1   # adjust to available modules
+cp pyproject-HPC.toml pyproject.toml              # or: uv sync --project pyproject-HPC.toml
+uv sync
+```
+
+> **Mirror / offline:** compute nodes have no internet. Uncomment the
+> `[[tool.uv.index]]` block in `pyproject-HPC.toml`, point it at the cluster PyPI
+> mirror, and pre-download **both** the generation model and the detector
+> (`CodingLL/RAGTruth_Eval`) into the HF cache on a login node; then export
+> `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1` on the compute
+> nodes. Removing the TGI server is what makes this benchmark runnable on a stock
+> SLURM GPU node.
+
+See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the two-stage data flow, the two
+model roles, and how the retained `baseline/` trainer relates to the new package.
 
 ## Citation
 

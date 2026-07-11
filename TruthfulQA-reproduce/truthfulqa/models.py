@@ -9,15 +9,19 @@ from .configs import BEST_COL, ANSWER_COL, INCORRECT_COL
 from transformers import AutoModelForCausalLM, AutoTokenizer, \
     T5ForConditionalGeneration, GPTNeoForCausalLM, AutoConfig
 import torch
-import openai
 import numpy as np
 import pandas as pd
 import warnings
+
+# NOTE: `openai` is imported lazily inside the GPT-3 helpers below so that the
+# local / HuggingFace evaluation path does not require the (optional) openai package.
 
 
 def run_GPT3(frame, engine, tag, preset='qa', verbose=False):
 
     """Stores answers from GPT-3 models (requires an API key)"""
+
+    import openai
 
     if tag not in frame.columns:
         frame[tag] = ''
@@ -60,6 +64,8 @@ def run_GPT3(frame, engine, tag, preset='qa', verbose=False):
 def run_probs_GPT3(frame, engine, tag, preset='qa', verbose=False):
 
     """Runs multiple-choice metrics for GPT-3 models (requires an API key)"""
+
+    import openai
 
     set_columns(tag, frame)
 

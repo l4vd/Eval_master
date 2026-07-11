@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "halueval"
+version = "0.1.0"
+description = "HaluEval benchmark — HPC / Linux variant pinned to the cluster's known-good stack (torch 2.2.2, transformers 4.41, Python 3.12)."
+readme = "README.md"
+# The HPC provides Python 3.12 modules and the known-good cluster env (`topollm`)
+# pins 3.12; torch 2.2.2 wheels exist for 3.12. Stay inside that window.
+requires-python = ">=3.12,<3.13"
+license = { file = "LICENSE" }
+
+# --- Versioning policy for this file -------------------------------------------
+# Libraries SHARED with the cluster's already-working `topollm` / `SP-DPO-Base`
+# environment are pinned to the SAME ranges that are known to resolve on the HPC
+# PyPI mirror (marked "[cluster]").
+#
+# No vLLM here (torch-2.2 incompatible). The HaluEval judge runs in-process via
+# the HF pipeline (evaluation/hf_local.py). The OpenAI reproduction path and the
+# LDA analysis stack are NOT part of this file — the compute nodes have no
+# internet for OpenAI, and the analysis deps (spacy/gensim/pyLDAvis) are best run
+# on a workstation.
+# -------------------------------------------------------------------------------
+dependencies = [
+    "torch==2.2.2",                  # [cluster] exact cluster pin
+    "transformers>=4.41,<4.42",      # [cluster] keeps the newest chat templates
+    "peft>=0.10,<0.12",              # [cluster]
+    "accelerate>=0.27,<0.29",        # [cluster]
+    "datasets>=2.18,<3.0",           # [cluster] datasets <3.0
+    "pyarrow<16",                    # [cluster] keeps datasets <3.0 happy
+    "huggingface-hub>=0.23,<0.24",   # [cluster] >=0.23 required by transformers 4.41
+    "numpy>=1.26,<2",                # [cluster] torch 2.2.x requires numpy 1.x
+    "sentencepiece>=0.2.0,<0.2.1",   # [cluster] tokenizers for many judge models
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.uv]
+index-strategy = "unsafe-best-match"
+
+# The HPC compute nodes have no internet; uv must install from the cluster PyPI
+# mirror. Uncomment and set the mirror (as the working `topollm` project does)
+# before running `uv sync` on the cluster:
+#
+# [[tool.uv.index]]
+# name = "cluster-mirror"
+# url = "<CLUSTER_PYPI_MIRROR_URL>"
+# default = true
+
+[tool.setuptools]
+py-modules = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

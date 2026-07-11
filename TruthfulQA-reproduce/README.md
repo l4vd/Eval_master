@@ -122,6 +122,74 @@ To test the performance of a new model on the generation task, add its answers t
 
 When running GPT-3 models or using GPT-3 metrics (`judge`, `info`), you will be asked for your OpenAI API key and the names of your fine-tuned models.
 
+### Evaluate your own checkpoint (local model / LoRA adapter)
+
+The original `--models` flag dispatches on a fixed set of model keys. To evaluate
+a checkpoint of your own — a local full-model directory **or** a PEFT/LoRA adapter
+(e.g. a `final_checkpoint` from the sibling `SP-DPO-Base` training pipeline) —
+pass `--model_path`. This registers a synthetic `local` model key and routes both
+the generation branch (`run_answers`) and the multiple-choice branch (`run_probs`)
+through the loader in [`truthfulqa/hf_local.py`](./truthfulqa/hf_local.py) instead
+of the built-in `from_pretrained(engine)` load. All existing keys keep working
+unchanged.
+
+```bash
+# Generation metrics (BLEU shown; needs the `legacy-metrics` extra — see below):
+python -m truthfulqa.evaluate --model_path /path/to/final_checkpoint \
+    --metrics bleu --input_path TruthfulQA.csv --output_path answers.csv
+
+# Multiple-choice (MC1/MC2) — no OpenAI key and no legacy metrics needed:
+python -m truthfulqa.evaluate --model_path /path/to/final_checkpoint \
+    --metrics mc --input_path TruthfulQA.csv --output_path answers.csv
+
+# A LoRA/PEFT adapter directory is auto-detected (adapter_config.json) and merged
+# onto its base model — the base is read from the adapter's own config:
+python -m truthfulqa.evaluate --model_path /path/to/lora_adapter --metrics mc \
+    --input_path TruthfulQA.csv
+
+# Overrides for edge cases:
+#   --base_model_id   base to merge the adapter onto (if not resolvable from config)
+#   --tokenizer_id    tokenizer, if not saved alongside the weights
+#   --dtype           bfloat16 | float16 | float32 (default float32, CPU-safe)
+#   --device 0        run on cuda:0 (default -1 = CPU)
+```
+
+A local `--model_path` that doesn't exist fails fast with a clear
+`FileNotFoundError` instead of a confusing Hub-lookup error.
+
+> **Note on metrics deps.** The generation similarity metrics (`bleu`, `rouge`,
+> `bleurt`) use the original paper's stack (`t5` → TensorFlow; `datasets.load_metric`
+> for BLEURT, which needs `datasets<3.0`). Install them with the optional extra:
+> `pip install -e ".[legacy-metrics]"`. They are imported lazily, so the `mc` path
+> and local generation run without them. The `openai` extra similarly gates the
+> GPT-3 / GPT-judge / GPT-info reproduction path.
+
+### Install (HPC)
+
+The default `pyproject.toml` targets a modern stack. On the cluster, use the
+pinned Linux variant [`pyproject-HPC.toml`](./pyproject-HPC.toml) (torch 2.2.2,
+transformers 4.41, Python 3.12; matches the known-good `topollm` / `SP-DPO-Base`
+env). With `uv`:
+
+```bash
+module load Python/3.12.3 uv/0.10.2 CUDA/12.6.1   # adjust to available modules
+cp pyproject-HPC.toml pyproject.toml              # or: uv sync --project pyproject-HPC.toml
+uv sync
+```
+
+> **Mirror / offline:** compute nodes have no internet. Uncomment the
+> `[[tool.uv.index]]` block in `pyproject-HPC.toml` and point it at the cluster
+> PyPI mirror, pre-download models/tokenizers into the HF cache on a login node,
+> and export `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1` on
+> the compute nodes. The legacy BLEU/ROUGE/BLEURT metrics (t5 + TensorFlow) are
+> **not** part of the HPC file — run those elsewhere, or use the `mc` metric.
+
+> The legacy `setup.py` is superseded by `pyproject.toml`; either installs the
+> `truthfulqa` package with `pip install -e .`.
+
+For the module map and where the local loader plugs in, see
+[`ARCHITECTURE.md`](./ARCHITECTURE.md).
+
 ### Fine-tuning GPT-3 for evaluation
 
 Of the automatic metrics, fine-tuned GPT-3 has the highest accuracy in predicting human evaluations of truthfulness and informativeness (generally ~90-95% validation accuracy across all model classes). Fine-tuning datasets are provided at `data/finetune_truth.jsonl` ("GPT-judge") and `data/finetune_info.jsonl` ("GPT-info"). We suggest the following hyperparameters (using OpenAI's CLI):

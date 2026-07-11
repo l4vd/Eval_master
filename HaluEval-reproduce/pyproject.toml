@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "halueval"
+version = "0.1.0"
+description = "HaluEval hallucination-recognition benchmark, with a local HuggingFace judge backend (run your own checkpoint / LoRA as the Yes/No judge)."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+
+# Core deps for the local HuggingFace judge backend (`--backend hf`, the default
+# when `--model-path` is set) — including running your own checkpoint / LoRA
+# adapter via evaluation/hf_local.py.
+dependencies = [
+    "torch>=2.1",
+    "transformers>=4.44",
+    "accelerate>=0.33",
+    "datasets>=2.20",
+    "peft>=0.11",
+]
+
+[project.optional-dependencies]
+# OpenAI reproduction path (`--backend openai`, the original GPT-3.5/davinci judge).
+# tiktoken is only used to truncate long summarization prompts for davinci.
+openai = [
+    "openai>=0.27",
+    "tiktoken>=0.5",
+]
+# LDA topic analysis of recognized/failed samples (analysis/analyze.py).
+analysis = [
+    "nltk>=3.8",
+    "spacy>=3.7",
+    "gensim>=4.3",
+    "pyLDAvis>=3.4",
+]
+dev = ["pytest>=8.0"]
+
+# The repo is a set of scripts (generation/, evaluation/, analysis/) run in place
+# rather than an importable package, so no package is declared; `pip install -e .`
+# just installs the dependencies above.
+[tool.setuptools]
+py-modules = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

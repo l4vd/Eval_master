@@ -1,22 +1,35 @@
+import os
 import random
-import openai
 import time
 import json
 import argparse
-import tiktoken
+
+# `openai` and `tiktoken` are imported lazily inside the OpenAI-backed helpers so
+# the local HuggingFace judge backend (--backend hf) runs without either package
+# and without an OpenAI API key. The key is read from the OPENAI_API_KEY env var
+# when the OpenAI backend is actually used (see _ensure_openai).
 
 
-openai.api_key = 'sk-'
+def _ensure_openai():
+    """Import openai and set the API key from OPENAI_API_KEY (OpenAI backend only)."""
+    import openai
+    if not getattr(openai, "api_key", None):
+        openai.api_key = os.environ.get("OPENAI_API_KEY", "")
+    return openai
 
-def get_qa_response(model, question, answer, instruction):
+
+def get_qa_response(model, question, answer, instruction, backend="openai", generator=None):
     message = [
         {"role": "system", "content":"You are a huallucination detector. You MUST determine if the provided answer contains hallucination or not for the question based on the world knowledge. The answer you provided MUST be \"Yes\" or \"No\""},
         {"role": "user", "content": instruction +
                                     "\n\n#Question#: " + question +
                                     "\n#Answer#: " + answer +
-                                    "\n#Your Judgement#: "} 
+                                    "\n#Your Judgement#: "}
     ]
     prompt = instruction + "\n\n#Question#: " + question + "\n#Answer#: " + answer + "\n#Your Judgement#:"
+    if backend == "hf":
+        return generator.generate(message)
+    openai = _ensure_openai()
     while True:
         try:
             if model == "gpt-3.5-turbo":
@@ -53,7 +66,7 @@ def get_qa_response(model, question, answer, instruction):
     return response
 
 
-def get_dialogue_response(model, dialog, response, instruction):
+def get_dialogue_response(model, dialog, response, instruction, backend="openai", generator=None):
     message = [
         {"role": "system", "content": "You are a response judge. You MUST determine if the provided response contains non-factual or hallucinated information. The answer you give MUST be \"Yes\" or \"No\""},
         {"role": "user", "content": instruction +
@@ -62,6 +75,9 @@ def get_dialogue_response(model, dialog, response, instruction):
                                     "\n#Your Judgement#: "}
     ]
     prompt = instruction + "\n\n#Dialogue History#: " + dialog + "\n#Response#: " + response + "\n#Your Judgement#:"
+    if backend == "hf":
+        return generator.generate(message)
+    openai = _ensure_openai()
     while True:
         try:
             if model == "gpt-3.5-turbo":
@@ -99,6 +115,7 @@ def get_dialogue_response(model, dialog, response, instruction):
 
 
 def num_tokens_from_message(message, model="davinci"):
+    import tiktoken
     encoding = tiktoken.encoding_for_model(model)
     num_tokens = len(encoding.encode(message))
     return num_tokens
@@ -113,7 +130,7 @@ def truncate_message(prompt1, prompt2, model="davinci"):
     return prompt
 
 
-def get_summarization_response(model, document, summary, instruction):
+def get_summarization_response(model, document, summary, instruction, backend="openai", generator=None):
     message = [
         {"role": "system", "content": "You are a summary judge. You MUST determine if the provided summary contains non-factual or hallucinated information. The answer you give MUST be \"Yes\" or \"No\""},
         {"role": "user", "content": instruction +
@@ -121,12 +138,15 @@ def get_summarization_response(model, document, summary, instruction):
                                     "\n#Summary#: " + summary +
                                     "\n#Your Judgement#: "}
     ]
+    if backend == "hf":
+        return generator.generate(message)
     prompt1 = instruction + "\n\n#Document#: " + document
     prompt2 = "\n#Summary#: " + summary + "\n#Your Judgement#:"
     if model == "davinci":
         prompt = truncate_message(prompt1, prompt2)
     else:
         prompt = prompt1 + prompt2
+    openai = _ensure_openai()
     while True:
         try:
             if model == "gpt-3.5-turbo":
@@ -163,15 +183,16 @@ def get_summarization_response(model, document, summary, instruction):
     return response
 
 
-def evaluation_qa_dataset(model, file, instruction, output_path):
+def evaluation_qa_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None):
     with open(file, 'r', encoding="utf-8") as f:
         data = []
         for line in f:
             data.append(json.loads(line))
 
+        n = len(data) if num_samples is None else min(num_samples, len(data))
         correct = 0
         incorrect = 0
-        for i in range(len(data)):
+        for i in range(n):
             knowledge = data[i]["knowledge"]
             question = data[i]["question"]
             hallucinated_answer = data[i]["hallucinated_answer"]
@@ -184,7 +205,7 @@ def evaluation_qa_dataset(model, file, instruction, output_path):
                 answer = right_answer
                 ground_truth = "No"
 
-            ans = get_qa_response(model, question, answer, instruction)
+            ans = get_qa_response(model, question, answer, instruction, backend=backend, generator=generator)
             ans = ans.replace(".", "")
 
             if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
@@ -215,18 +236,19 @@ def evaluation_qa_dataset(model, file, instruction, output_path):
             print('sample {} success......'.format(i))
             dump_jsonl(gen, output_path, append=True)
 
-        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(correct, incorrect, correct/len(data)))
+        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(correct, incorrect, correct/n))
 
 
-def evaluation_dialogue_dataset(model, file, instruction, output_path):
+def evaluation_dialogue_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None):
     with open(file, 'r', encoding="utf-8") as f:
         data = []
         for line in f:
             data.append(json.loads(line))
 
+        n = len(data) if num_samples is None else min(num_samples, len(data))
         correct = 0
         incorrect = 0
-        for i in range(len(data)):
+        for i in range(n):
             knowledge = data[i]["knowledge"]
             dialog = data[i]["dialogue_history"]
             hallucinated_response = data[i]["hallucinated_response"]
@@ -239,7 +261,7 @@ def evaluation_dialogue_dataset(model, file, instruction, output_path):
                 response = right_response
                 ground_truth = "No"
 
-            ans = get_dialogue_response(model, dialog, response, instruction)
+            ans = get_dialogue_response(model, dialog, response, instruction, backend=backend, generator=generator)
             ans = ans.replace(".", "")
 
             if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
@@ -268,18 +290,19 @@ def evaluation_dialogue_dataset(model, file, instruction, output_path):
             print('sample {} success......'.format(i))
             dump_jsonl(gen, output_path, append=True)
 
-        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(correct, incorrect, correct / len(data)))
+        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(correct, incorrect, correct / n))
 
 
-def evaluation_summarization_dataset(model, file, instruction, output_path):
+def evaluation_summarization_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None):
     with open(file, 'r', encoding="utf-8") as f:
         data = []
         for line in f:
             data.append(json.loads(line))
 
+        n = len(data) if num_samples is None else min(num_samples, len(data))
         correct = 0
         incorrect = 0
-        for i in range(len(data)):
+        for i in range(n):
 
             document = data[i]["document"]
             hallucinated_summary = data[i]["hallucinated_summary"]
@@ -292,7 +315,7 @@ def evaluation_summarization_dataset(model, file, instruction, output_path):
                 summary = right_summary
                 ground_truth = "No"
 
-            ans = get_summarization_response(model, document, summary, instruction)
+            ans = get_summarization_response(model, document, summary, instruction, backend=backend, generator=generator)
             ans = ans.replace(".", "")
 
             if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
@@ -321,7 +344,7 @@ def evaluation_summarization_dataset(model, file, instruction, output_path):
             print('sample {} success......'.format(i))
             dump_jsonl(gen, output_path, append=True)
 
-        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(correct, incorrect, correct / len(data)))
+        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(correct, incorrect, correct / n))
 
 
 def dump_jsonl(data, output_path, append=False):
@@ -338,23 +361,63 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Hallucination Generation")
 
     parser.add_argument("--task", default="qa", help="qa, dialogue, or summarization")
-    parser.add_argument("--model", default="davinci", help="model name")
+    parser.add_argument("--model", default="davinci", help="model name (OpenAI backend) or run label")
+    parser.add_argument("--backend", default=None, choices=["openai", "hf"],
+                        help="Judge backend. Defaults to 'hf' when --model-path is set, else 'openai'.")
+    # --- Local HuggingFace judge: run your own checkpoint / LoRA adapter (see hf_local.py) ---
+    parser.add_argument("--model-path", dest="model_path", default=None,
+                        help="Hugging Face Hub id, local full-model path, or PEFT/LoRA adapter to use "
+                             "as the Yes/No hallucination judge (--backend hf).")
+    parser.add_argument("--base-model-id", dest="base_model_id", default=None,
+                        help="Base model for a --model-path that is a LoRA adapter, if not resolvable "
+                             "from the adapter config.")
+    parser.add_argument("--tokenizer-id", dest="tokenizer_id", default=None,
+                        help="Tokenizer id/path, if not saved alongside --model-path.")
+    parser.add_argument("--cache-dir", dest="cache_dir", default=None,
+                        help="Hugging Face cache directory.")
+    parser.add_argument("--dtype", default="bfloat16", choices=["bfloat16", "float16", "float32"],
+                        help="dtype for the local HF judge model.")
+    parser.add_argument("--device-map", dest="device_map", default="auto",
+                        help="device_map passed to from_pretrained for the HF judge.")
+    parser.add_argument("--max-new-tokens", dest="max_new_tokens", type=int, default=16,
+                        help="Max new tokens for the HF judge (a Yes/No answer is short).")
+    parser.add_argument("--num-samples", dest="num_samples", type=int, default=None,
+                        help="Evaluate only the first N examples (useful for smoke tests).")
     args = parser.parse_args()
+
+    backend = args.backend or ("hf" if args.model_path else "openai")
+
+    generator = None
+    if backend == "hf":
+        if not args.model_path:
+            raise ValueError("--backend hf requires --model-path")
+        from hf_local import HFChatGenerator
+        generator = HFChatGenerator(
+            model_id=args.model_path,
+            base_model_id=args.base_model_id,
+            tokenizer_id=args.tokenizer_id,
+            cache_dir=args.cache_dir,
+            device_map=args.device_map,
+            dtype=args.dtype,
+            max_new_tokens=args.max_new_tokens,
+        )
 
     instruction_file = "{}/{}_evaluation_instruction.txt".format(args.task, args.task)
     f = open(instruction_file, 'r', encoding="utf-8")
     instruction = f.read()
 
     model = args.model
-    output_path = "{}/{}_{}_results.json".format(args.task, args.task, args.model)
+    label = args.model_path.replace("/", "_").replace("\\", "_") if (backend == "hf" and args.model_path) else args.model
+    output_path = "{}/{}_{}_results.json".format(args.task, args.task, label)
 
     data = "../data/{}_data.json".format(args.task)
 
+    kwargs = dict(backend=backend, generator=generator, num_samples=args.num_samples)
     if args.task == "qa":
-        evaluation_qa_dataset(model, data, instruction, output_path)
+        evaluation_qa_dataset(model, data, instruction, output_path, **kwargs)
     elif args.task == "dialogue":
-        evaluation_dialogue_dataset(model, data, instruction, output_path)
+        evaluation_dialogue_dataset(model, data, instruction, output_path, **kwargs)
     elif args.task == "summarization":
-        evaluation_summarization_dataset(model, data, instruction, output_path)
+        evaluation_summarization_dataset(model, data, instruction, output_path, **kwargs)
     else:
         raise ValueError("The task must be qa, dialogue, or summarization!")
