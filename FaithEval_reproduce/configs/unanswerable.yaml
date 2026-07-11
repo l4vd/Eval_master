@@ -1,0 +1,21 @@
+# Task config for FaithEval-unanswerable-v1.0.
+# The context does not contain the answer to the question; a faithful model
+# should refuse to answer rather than fabricate one.
+dataset_name: Salesforce/FaithEval-unanswerable-v1.0
+scoring: phrase_match
+
+task_specific_prompt: >-
+  If there is no information available from the context, the answer should be 'unknown'.
+
+valid_phrases:
+  - unknown
+  - no answer
+  - no information
+  - not
+  - unclear
+
+strict_valid_phrases:
+  - unknown
+
+context_column: context
+question_column: question

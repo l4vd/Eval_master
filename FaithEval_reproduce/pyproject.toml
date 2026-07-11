@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "faitheval"
+version = "0.1.0"
+description = "Evaluation CLI for the FaithEval contextual-faithfulness benchmark."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE.txt" }
+dependencies = [
+    "torch>=2.1",
+    "transformers>=4.44",
+    "accelerate>=0.33",
+    "datasets>=2.20",
+    "tqdm>=4.66",
+    "pyyaml>=6.0",
+    "peft>=0.11",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+faitheval-eval = "faitheval.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

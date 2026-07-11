@@ -1,0 +1,14 @@
+# Task config for FaithEval-counterfactual-v1.0.
+# The context contains counterfactual statements that contradict common sense
+# or world knowledge; a faithful model should answer according to the given
+# context rather than its own world knowledge.
+dataset_name: Salesforce/FaithEval-counterfactual-v1.0
+scoring: answer_match
+
+#task_specific_prompt: >-
+#  Answer strictly based on the given context, even if it contradicts common sense or world knowledge.
+# no task specific instruction is added
+
+context_column: context
+question_column: question
+answer_column: answer

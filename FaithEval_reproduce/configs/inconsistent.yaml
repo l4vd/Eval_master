@@ -1,0 +1,27 @@
+# Task config for FaithEval-inconsistent-v1.0.
+# Multiple, contradictory answers are supported by different documents in the
+# context; a faithful model should flag the conflict rather than pick one.
+dataset_name: Salesforce/FaithEval-inconsistent-v1.0
+scoring: phrase_match
+
+task_specific_prompt: >-
+  If there is conflict information or multiple answers from the context, the answer should be 'conflict'.
+
+valid_phrases: # non strict matching
+  - conflict
+  - multiple answers
+  - disagreement
+  - inconsistent
+  - contradictory
+  - contradiction
+  - inconsistency
+  - two answers
+  - 2 answers
+  - multiple answers
+  - conflicting
+
+strict_valid_phrases:
+  - conflict
+
+context_column: context
+question_column: question
