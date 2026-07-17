@@ -36,6 +36,7 @@ dependencies = [
     "scikit-learn<1.8",              # [cluster] (used by the retained baseline/ trainer path)
     "sentencepiece>=0.2.0,<0.2.1",   # [cluster] detector tokenizer (Llama-2 family)
     "tqdm>=4.66",                    # [cluster]
+    "scipy>=1.11,<1.14",
 ]
 
 [project.optional-dependencies]

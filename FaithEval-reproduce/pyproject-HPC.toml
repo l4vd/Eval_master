@@ -31,6 +31,7 @@ dependencies = [
     "pyarrow<16",                    # [cluster] keeps datasets <3.0 happy
     "huggingface-hub>=0.23,<0.24",   # [cluster] >=0.23 required by transformers 4.41
     "numpy>=1.26,<2",                # [cluster] torch 2.2.x requires numpy 1.x
+    "pandas<2.3",                    # [cluster] pandas>=3.0 needs numpy>=2 to build (no wheel on this platform)
     "tqdm>=4.66",                    # [cluster]
     "pyyaml>=6.0",                   # [cluster]
 ]

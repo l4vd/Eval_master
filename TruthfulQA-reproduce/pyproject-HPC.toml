@@ -36,6 +36,7 @@ dependencies = [
     "pandas<2.3",                    # [cluster]
     "scikit-learn<1.8",              # [cluster]
     "sentencepiece>=0.2.0,<0.2.1",   # [cluster] T5 / UnifiedQA tokenizers
+    "scipy>=1.11,<1.14",
 ]
 
 [project.optional-dependencies]

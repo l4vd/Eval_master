@@ -27,6 +27,8 @@
 
 set -euo pipefail
 
+uv
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BENCHMARKS=(FaithEval-reproduce TruthfulQA-reproduce HaluEval-reproduce RAGTruth-reproduce)
 
