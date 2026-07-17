@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "harness-eval"
+version = "0.1.0"
+description = "TruthfulQA via lm-evaluation-harness — HPC / Linux variant pinned to the cluster's known-good stack (torch 2.2.2, transformers 4.41, Python 3.12)."
+readme = "README.md"
+# The HPC provides Python 3.12 modules and the known-good cluster env pins 3.12;
+# torch 2.2.2 wheels exist for 3.12. lm_eval 0.4.12 also requires >=3.10, so this
+# window satisfies both. Stay inside it.
+requires-python = ">=3.12,<3.13"
+
+# --- Versioning policy for this file -------------------------------------------
+# Libraries SHARED with the cluster's already-working environment are pinned to
+# the SAME ranges that are known to resolve on the HPC PyPI mirror (marked
+# "[cluster]"). Libraries this benchmark adds on top are marked "[added]".
+#
+# ⚠️ lm_eval 0.4.12 is metadata-compatible with transformers 4.41 (it only floors
+# transformers>=4.1), but its `HFLM` is written against much newer transformers and
+# this pairing is UNVERIFIED at runtime on the cluster. If it breaks, fall back to
+# `lm_eval[hf]==0.4.8` (Python >=3.9, torch as a base dep, contemporaneous with
+# transformers 4.41) — see ARCHITECTURE.md "HPC".
+# -------------------------------------------------------------------------------
+dependencies = [
+    "lm_eval[hf]==0.4.12",           # [added] fallback: ==0.4.8 if 4.41 breaks at runtime
+    "torch==2.2.2",                  # [cluster] exact cluster pin
+    "transformers>=4.41,<4.42",      # [cluster]
+    "peft>=0.10,<0.12",              # [cluster]
+    "accelerate>=0.27,<0.29",        # [cluster]
+    "datasets>=2.18,<3.0",           # [cluster] datasets <3.0
+    "pyarrow<16",                    # [cluster] keeps datasets <3.0 happy
+    "huggingface-hub>=0.23,<0.24",   # [cluster] >=0.23 required by transformers 4.41
+    "numpy>=1.26,<2",                # [cluster] torch 2.2.x requires numpy 1.x
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    # pre-commit / network-fetching dev tools are omitted: the HPC compute nodes
+    # have no internet. Run those on a machine with connectivity.
+]
+
+[project.scripts]
+harness-eval = "harness_eval.cli:main"
+
+[tool.uv]
+index-strategy = "unsafe-best-match"
+
+# The HPC compute nodes have no internet; uv must install from the cluster PyPI
+# mirror. Note `rouge-score` (pulled by lm_eval for `truthfulqa_gen`) is
+# sdist-only and needs a build — make sure the mirror serves it. Uncomment and set
+# the mirror before running `uv sync` on the cluster:
+#
+# [[tool.uv.index]]
+# name = "cluster-mirror"
+# url = "<CLUSTER_PYPI_MIRROR_URL>"
+# default = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

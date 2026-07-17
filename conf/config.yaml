@@ -1,6 +1,6 @@
 # Hydra composition root for the central benchmark launcher.
 #
-# One shared `model` block feeds all four benchmarks (their model interfaces were
+# One shared `model` block feeds all five benchmarks (their model interfaces were
 # unified: a Hub id, a local checkpoint, or a LoRA/PEFT adapter, all auto-detected).
 # Each benchmark has its own config group so you can tune its subcomponents, e.g.:
 #   ./run_all.sh model.id=/path/to/final_checkpoint
@@ -12,19 +12,22 @@ defaults:
   - truthfulqa: default
   - halueval: default
   - ragtruth: default
+  - harness: default
   - _self_
 
-# Which benchmarks to run, in order. Subset the four to run only some.
-run: [faitheval, truthfulqa, halueval, ragtruth]
+# Which benchmarks to run, in order. Subset the five to run only some.
+run: [faitheval, truthfulqa, halueval, ragtruth, harness]
 
 # Global default sample cap for benchmarks that support it (FaithEval, HaluEval,
-# RAGTruth). null = full dataset. Each benchmark can override with its own
+# RAGTruth, harness). null = full dataset. Each benchmark can override with its own
 # `<benchmark>.num_samples`. NOTE: TruthfulQA has no sample cap (it scores the
-# whole questions CSV); pre-truncate the CSV if you need a subset there.
+# whole questions CSV); pre-truncate the CSV if you need a subset there. For
+# `harness` the cap is lm_eval's --limit, which applies PER TASK, so a small value
+# still fans out across every task in its list.
 num_samples: null
 
 # Interpreter used to launch each benchmark. `auto` resolves each benchmark's own
-# virtualenv (created by ./setup_envs.sh) — the four have incompatible dependency
+# virtualenv (created by ./setup_envs.sh) — the five have incompatible dependency
 # stacks, so they are installed separately. Override globally with `python=...`
 # (e.g. `python=python` for one shared env) or per-benchmark with
 # `<benchmark>.python=/path/to/python`.

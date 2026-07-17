@@ -12,4 +12,4 @@ model:
   cache_dir: null          # Hugging Face cache directory
   dtype: "bfloat16"        # bfloat16 | float16 | float32 (use float32 on CPU)
   device_map: "auto"       # for FaithEval / HaluEval / RAGTruth (--device-map)
-  device_index: -1         # for TruthfulQA (--device; -1 = CPU, 0 = cuda:0)
+  device_index: -1         # for TruthfulQA / harness (--device; -1 = CPU, 0 = cuda:0)

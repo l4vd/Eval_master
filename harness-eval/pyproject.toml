@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "harness-eval"
+version = "0.1.0"
+description = "TruthfulQA evaluation via EleutherAI/lm-evaluation-harness (English + multilingual)."
+readme = "README.md"
+# DEVIATION from the sibling benchmarks' `requires-python = ">=3.9"`: lm_eval
+# 0.4.10+ requires >=3.10, so a ">=3.9" floor makes the resolver silently
+# backtrack to lm_eval ~0.4.9.x to satisfy every 3.9 interpreter. The cluster runs
+# 3.12, so this costs nothing in practice. See ARCHITECTURE.md.
+requires-python = ">=3.10"
+dependencies = [
+    "lm_eval[hf]>=0.4.12,<0.5",
+    # torch/transformers/accelerate/peft are declared here at the repo's shared
+    # major-boundary caps, even though lm_eval pulls them via its `hf` extra: it
+    # moved them out of its base deps at 0.4.12, and declaring them ourselves keeps
+    # the stack pinned the same way as every other benchmark regardless.
+    "torch>=2.1,<3",
+    "transformers>=4.44,<5",
+    "accelerate>=0.33,<2",
+    "datasets>=2.20,<4",
+    "peft>=0.11,<1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+harness-eval = "harness_eval.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

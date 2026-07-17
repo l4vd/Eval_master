@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Central Hydra launcher for the four *-reproduce benchmarks.
+"""Central Hydra launcher for the five benchmarks.
 
 The benchmarks are separate repos with unified model interfaces (a Hub id, a
 local checkpoint, or a LoRA/PEFT adapter). This launcher composes one shared
@@ -30,6 +30,7 @@ FOLDERS = {
     "truthfulqa": ROOT / "TruthfulQA-reproduce",
     "halueval": ROOT / "HaluEval-reproduce",
     "ragtruth": ROOT / "RAGTruth-reproduce",
+    "harness": ROOT / "harness-eval",
 }
 
 
@@ -195,11 +196,37 @@ def build_ragtruth(cfg: DictConfig, out: Path) -> list[list[str]]:
     return [cmd]
 
 
+def build_harness(cfg: DictConfig, out: Path) -> list[list[str]]:
+    b = cfg.harness
+    samples = _resolve_samples(b, cfg)
+    # One command for the whole task list: lm_eval loads the model once and
+    # evaluates every task in a single pass. --tasks is nargs="+", terminated by
+    # the following --dtype (no task name starts with "-").
+    cmd = (
+        ["src/run_eval.py", "--model-id", str(cfg.model.id)]
+        + _model_common_map(cfg)
+        + ["--tasks", *[str(t) for t in b.tasks]]
+        + ["--dtype", str(cfg.model.dtype), "--device", str(cfg.model.device_index)]
+        + _opt("--num-fewshot", b.num_fewshot)
+        + _opt("--batch-size", b.batch_size)
+        + _opt("--limit", samples)
+        + _opt("--system-instruction", b.system_instruction)
+        + (["--apply-chat-template"] if b.apply_chat_template else [])
+        + (["--fewshot-as-multiturn"] if b.fewshot_as_multiturn else [])
+        + (["--trust-remote-code"] if b.trust_remote_code else [])
+        + (["--log-samples"] if b.log_samples else [])
+        + ["--output-dir", str(out / "harness")]
+        + list(b.extra_args)
+    )
+    return [cmd]
+
+
 BUILDERS = {
     "faitheval": build_faitheval,
     "truthfulqa": build_truthfulqa,
     "halueval": build_halueval,
     "ragtruth": build_ragtruth,
+    "harness": build_harness,
 }
 # Subdirectory (relative to a benchmark folder) to run each command from.
 CWD_SUBDIR = {"halueval": "evaluation"}
@@ -211,7 +238,7 @@ def main(cfg: DictConfig) -> None:
     if not cfg.dry_run:
         # TruthfulQA's `--output_path` (a file) needs its parent to exist before
         # the subprocess writes to it; the others create their own --output-dir.
-        for sub in ("faitheval", "truthfulqa", "ragtruth"):
+        for sub in ("faitheval", "truthfulqa", "ragtruth", "harness"):
             (out / sub).mkdir(parents=True, exist_ok=True)
     print(f"==> Output dir: {out}")
     print(f"==> Model: {cfg.model.id} (dtype={cfg.model.dtype})")

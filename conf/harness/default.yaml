@@ -1,0 +1,53 @@
+# lm-evaluation-harness — the community-standard TruthfulQA numbers.
+#
+# Wraps EleutherAI/lm-evaluation-harness (`lm_eval`). This is a SECOND, independent
+# number next to `TruthfulQA-reproduce` (which runs the original authors' scripts):
+# the harness is what public leaderboards report, so both are kept. Expect the two
+# MC1/MC2 numbers to differ — the prompt and scoring plumbing are not identical.
+enabled: true
+python: null
+
+# lm_eval task names, passed to `--tasks`. All three below are lm_eval *tags*, not
+# *groups*: each expands to its subtasks and is reported per-subtask, with NO
+# aggregate score.
+#   truthfulqa              -> truthfulqa_mc1, truthfulqa_mc2, truthfulqa_gen (English)
+#   truthfulqa_multilingual -> truthfulqa_<lang>_mc1 / _mc2, 31 okapi languages (62 tasks)
+#   truthfulqa-multi        -> truthfulqa-multi_{mc1,mc2,gen}_{en,es,ca,eu,gl} (HiTZ)
+# Glob patterns work (e.g. 'truthfulqa_de_*'). Names are validated against the
+# installed lm_eval; `src/run_eval.py --list-tasks truthfulqa` prints what it knows.
+tasks: [truthfulqa]
+
+# Sample cap. Falls back to the global `num_samples`. NOTE: this is lm_eval's
+# --limit, which applies PER TASK — num_samples=5 over the 62 okapi tasks is 310
+# evaluations, not 5. Any non-null value makes the run non-comparable to published
+# scores; it is recorded in summary.json.
+num_samples: null
+
+# Few-shot count. null = each task's own default (TruthfulQA is 0-shot; its few-shot
+# QA primer is baked into the prompt upstream).
+num_fewshot: null
+
+batch_size: 1            # int, or "auto" / "auto:N" for lm_eval's autodetection
+
+# How the question is presented to the evaluated model.
+#   false (default) — the published completion-style protocol, and lm_eval's own
+#                     default; this is what leaderboard numbers use and why this
+#                     module exists. Comparable to `truthfulqa.prompt_style=completion`.
+#   true            — render prompts with the model's own chat template. Comparable
+#                     to `truthfulqa.prompt_style=chat` (its default) and to the
+#                     other three benchmarks.
+# This MATERIALLY moves the scores (README-runner.md "Prompt format": MC2 0.06 vs
+# 0.26 on a smoke test), so keep it fixed across the models you compare. The
+# resolved value is recorded in summary.json.
+apply_chat_template: false
+
+# Present few-shot examples as separate chat turns; only meaningful with
+# apply_chat_template=true. Passed explicitly on EVERY run because lm_eval's own
+# default for this flipped from false to true between 0.4.5 and 0.4.12.
+fewshot_as_multiturn: false
+
+system_instruction: null # optional system prompt (typically with apply_chat_template)
+trust_remote_code: false # for checkpoints with custom modeling code
+log_samples: true        # write per-document records to samples.jsonl
+
+extra_args: []           # raw flags forwarded to src/run_eval.py

@@ -1,23 +1,24 @@
 # Central benchmark launcher
 
-One entry point to run the four `*-reproduce` benchmarks against a single model,
-configured with [Hydra](https://hydra.cc/). The benchmarks stay separate repos;
-this launcher just composes one shared `model` config plus a per-benchmark config
-group and translates them into each benchmark's own CLI.
+One entry point to run the five benchmarks (four `*-reproduce` plus `harness-eval`)
+against a single model, configured with [Hydra](https://hydra.cc/). The benchmarks
+stay separate repos; this launcher just composes one shared `model` config plus a
+per-benchmark config group and translates them into each benchmark's own CLI.
 
 ```
 run_all.sh              # shell wrapper (forwards Hydra overrides)
 setup_envs.sh           # one-time: creates a virtualenv per benchmark
 run_benchmarks.py       # Hydra launcher: composes config → subprocess per benchmark
 conf/
-├── config.yaml         # composition root: model + the four benchmark groups + run list
+├── config.yaml         # composition root: model + the five benchmark groups + run list
 ├── model/              # shared model target (id/path/LoRA, dtype, device)
 │   ├── qwen_tiny.yaml  #   default: Qwen2.5-0.5B-Instruct (fast, CPU-friendly)
 │   └── _template.yaml  #   copy to point at your own checkpoint
 ├── faitheval/default.yaml
 ├── truthfulqa/default.yaml
 ├── halueval/default.yaml
-└── ragtruth/default.yaml
+├── ragtruth/default.yaml
+└── harness/default.yaml  # TruthfulQA via lm-evaluation-harness (English + multilingual)
 ```
 
 ## Install
@@ -93,6 +94,11 @@ Each benchmark is its own Hydra group — override any nested key:
 ./run_all.sh ragtruth.detector.id=/path/to/detector \
     ragtruth.gold_f1=true ragtruth.split=test ragtruth.task_types='[QA]'
 
+# harness (lm_eval): add the multilingual TruthfulQA tags; render with the chat
+# template instead of the published completion protocol (see "Prompt format")
+./run_all.sh harness.tasks='[truthfulqa,truthfulqa_multilingual,truthfulqa-multi]' \
+    harness.apply_chat_template=true
+
 # Disable one benchmark without removing it from `run`:
 ./run_all.sh halueval.enabled=false
 
@@ -112,7 +118,7 @@ Each benchmark is its own Hydra group — override any nested key:
 | `model.cache_dir` | `--cache-dir` (etc.) | HF cache |
 | `model.dtype` | `--dtype` | `bfloat16` \| `float16` \| `float32` |
 | `model.device_map` | `--device-map` | FaithEval / HaluEval / RAGTruth |
-| `model.device_index` | `--device` | TruthfulQA (`-1` = CPU) |
+| `model.device_index` | `--device` | TruthfulQA / harness (`-1` = CPU, `0` = cuda:0) |
 
 Point at your own checkpoint by editing `conf/model/_template.yaml` (then
 `model=_template`) or just overriding `model.id=...` on the CLI.
@@ -129,6 +135,7 @@ an instruct checkpoint sees the turn markers it was tuned on:
 | RAGTruth stage 1 | the dataset item's own prompt | yes, explicit |
 | RAGTruth stage 2 | fixed `[INST] ... [/INST]` detector template | **no, by design** — the detector was fine-tuned on that exact string |
 | TruthfulQA | `truthfulqa.prompt_style` (below) | `chat` by default |
+| harness (lm_eval) | `harness.apply_chat_template` | `false` by default — the published completion-style protocol, so its numbers are leaderboard-comparable |
 
 TruthfulQA is the one with a real choice, because the original benchmark predates
 chat models and presents the same raw `Q:/A:` few-shot string to everything:
@@ -151,8 +158,8 @@ Base and DPO checkpoints share a tokenizer, so either style compares them fairly
 
 | Key | Purpose |
 | --- | --- |
-| `run` | which benchmarks to run, in order (subset of the four) |
-| `num_samples` | global sample cap for FaithEval / HaluEval / RAGTruth (TruthfulQA has none) |
+| `run` | which benchmarks to run, in order (subset of the five) |
+| `num_samples` | global sample cap for FaithEval / HaluEval / RAGTruth, and harness (as lm_eval's `--limit`, applied **per task**); TruthfulQA has none |
 | `python` | interpreter for every benchmark; `auto` (default) finds each one's venv; per-benchmark override `<benchmark>.python=...` |
 | `venv_root` | where the per-benchmark venvs live; null = `<benchmark>/.venv`. Also read from `$VENV_ROOT` |
 | `dry_run` | print commands instead of executing |
@@ -162,9 +169,9 @@ Base and DPO checkpoints share a tokenizer, so either style compares them fairly
 ## Outputs
 
 Each run gets a timestamped `outputs/<date>/<time>/` directory with per-benchmark
-subfolders (`faitheval/`, `truthfulqa/`, `ragtruth/`). HaluEval writes its results
-under its own `evaluation/<task>/` folder (upstream behavior). A summary table of
-what ran (and pass/fail) prints at the end.
+subfolders (`faitheval/`, `truthfulqa/`, `ragtruth/`, `harness/`). HaluEval writes
+its results under its own `evaluation/<task>/` folder (upstream behavior). A summary
+table of what ran (and pass/fail) prints at the end.
 
 ## Separate environments per benchmark
 

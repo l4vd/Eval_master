@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Create one virtualenv per benchmark (plus one for the launcher itself).
 #
-# The four benchmarks have incompatible dependency stacks, so each gets its own
+# The five benchmarks have incompatible dependency stacks, so each gets its own
 # environment. `run_benchmarks.py` resolves them automatically (`python: auto` in
 # conf/config.yaml), so after this script `./run_all.sh` needs no extra flags.
 #
@@ -30,7 +30,7 @@ set -euo pipefail
 uv
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BENCHMARKS=(FaithEval-reproduce TruthfulQA-reproduce HaluEval-reproduce RAGTruth-reproduce)
+BENCHMARKS=(FaithEval-reproduce TruthfulQA-reproduce HaluEval-reproduce RAGTruth-reproduce harness-eval)
 
 HPC=false
 VENV_ROOT="${VENV_ROOT:-}"
