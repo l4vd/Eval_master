@@ -148,15 +148,23 @@ class HFChatGenerator:
         """'chat_template' or 'concat' — recorded alongside results for provenance."""
         return "chat_template" if self._has_chat_template else "concat"
 
-    def generate(self, messages: list[dict[str, str]]) -> str:
-        """Generate a judgement (ideally 'Yes'/'No') for chat-formatted messages.
+    def generate(self, messages: list[dict[str, str]], completion_prompt: str) -> str:
+        """Generate a judgement (ideally 'Yes'/'No') for one judge prompt.
+
+        Takes both renderings of the same judgement request, and picks by what the
+        model supports: `messages` (chat turns) when the tokenizer has a chat
+        template, else `completion_prompt` -- HaluEval's own flat prompt string, the
+        one it sends to the legacy `openai.Completion` engines. Both are built
+        side by side in `evaluate.get_*_response`; passing the benchmark's existing
+        string keeps a base model on a format HaluEval actually defines, rather than
+        one this wrapper invented.
 
         Greedy decoding; the caller normalizes the returned text to Yes/No.
         """
         if not self._has_chat_template:
-            prompt = "\n\n".join(m["content"].strip() for m in messages)
             outputs = self._generator(
-                prompt, max_new_tokens=self.max_new_tokens, do_sample=False, return_full_text=False
+                completion_prompt, max_new_tokens=self.max_new_tokens, do_sample=False,
+                return_full_text=False,
             )
             return outputs[0]["generated_text"].strip()
 

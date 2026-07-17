@@ -28,7 +28,7 @@ def get_qa_response(model, question, answer, instruction, backend="openai", gene
     ]
     prompt = instruction + "\n\n#Question#: " + question + "\n#Answer#: " + answer + "\n#Your Judgement#:"
     if backend == "hf":
-        return generator.generate(message)
+        return generator.generate(message, prompt)
     openai = _ensure_openai()
     while True:
         try:
@@ -76,7 +76,7 @@ def get_dialogue_response(model, dialog, response, instruction, backend="openai"
     ]
     prompt = instruction + "\n\n#Dialogue History#: " + dialog + "\n#Response#: " + response + "\n#Your Judgement#:"
     if backend == "hf":
-        return generator.generate(message)
+        return generator.generate(message, prompt)
     openai = _ensure_openai()
     while True:
         try:
@@ -138,10 +138,12 @@ def get_summarization_response(model, document, summary, instruction, backend="o
                                     "\n#Summary#: " + summary +
                                     "\n#Your Judgement#: "}
     ]
-    if backend == "hf":
-        return generator.generate(message)
     prompt1 = instruction + "\n\n#Document#: " + document
     prompt2 = "\n#Summary#: " + summary + "\n#Your Judgement#:"
+    if backend == "hf":
+        # Untruncated: `truncate_message` is a workaround for davinci's 2033-token
+        # window and needs tiktoken (an openai-path dependency).
+        return generator.generate(message, prompt1 + prompt2)
     if model == "davinci":
         prompt = truncate_message(prompt1, prompt2)
     else:

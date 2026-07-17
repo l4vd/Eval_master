@@ -93,7 +93,13 @@ other `*-reproduce` benchmarks.
 
 Passing the message list to the pipeline makes it apply **the judge model's own
 chat template**, so the prompt is model-dependent by design. A base (non-instruct)
-model has no template and would make the pipeline raise; `HFChatGenerator` detects
-that at load time, warns, and falls back to a plain `\n\n` concatenation of the
-message contents. `generator.prompt_format` reports which path is in use
+model has no template and would make the pipeline raise. `HFChatGenerator` detects
+that at load time, warns, and instead sends the flat `completion_prompt`.
+
+Each `get_*_response` already builds both renderings side by side — `message` (chat
+turns) and `prompt` (the flat string it sends to the legacy `openai.Completion`
+engines) — and now passes both to `generate`, which picks by what the model
+supports. The fallback is therefore HaluEval's *own* completion format, not one
+this wrapper invented; note it deliberately omits the system preamble that the chat
+rendering carries. `generator.prompt_format` reports which path is in use
 (`chat_template` / `concat`).
