@@ -1,10 +1,29 @@
 # TruthfulQA — truthfulness. Evaluates the model's own generations / log-probs.
-# `mc` (MC1/MC2) needs only torch+transformers; `bleu`/`rouge`/`bleurt` need the
-# benchmark's `legacy-metrics` extra (t5 → TensorFlow). No global num_samples
+# `mc` (MC1/MC2/MC3) and the local `judge`/`info` metrics need only
+# torch+transformers; `bleu`/`rouge`/`bleurt` need the benchmark's `legacy-metrics`
+# extra (t5 → TensorFlow) and are unsupported on the cluster. No global num_samples
 # cap here — TruthfulQA scores the whole `input_path` CSV.
 enabled: true
 python: null
-metrics: [mc]                # any of: mc, bleu, rouge, bleurt, judge, info
+metrics: [mc]                # any of: mc, judge, info, bleu, rouge, bleurt
 preset: qa                   # qa | null | chat | long | help | harm
 input_path: TruthfulQA.csv   # relative to the TruthfulQA-reproduce folder
+
+# How the question is presented to the evaluated model.
+#   chat       — the preset's few-shot pairs as user/assistant turns, rendered with
+#                the model's own chat template (matches the other three benchmarks)
+#   completion — the original paper's raw `Q:/A:` few-shot completion string
+#   auto       — chat if the tokenizer has a chat template, else completion
+# Base and DPO checkpoints share a tokenizer, so either style keeps them
+# comparable; `completion` reproduces the published protocol exactly.
+prompt_style: chat
+
+# GPT-judge / GPT-info (`metrics: [mc, judge, info]`). The original fine-tuned
+# GPT-3 engines no longer exist, so `local` runs the authors' successor judges
+# in-process (no API key, works offline). `openai` keeps the legacy API path and
+# needs OPENAI_API_KEY plus `<metric>_judge_id` naming your own fine-tuned engine.
+judge_backend: local         # local | openai
+truth_judge_id: "allenai/truthfulqa-truth-judge-llama2-7B"
+info_judge_id: "allenai/truthfulqa-info-judge-llama2-7B"
+
 extra_args: []               # raw flags forwarded to `python -m truthfulqa.evaluate`

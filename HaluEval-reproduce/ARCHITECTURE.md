@@ -90,3 +90,10 @@ that runs a chat text-generation pipeline greedily and returns the assistant
 turn. `--model-path` therefore accepts a Hub id, a local full-model path, or a
 LoRA/PEFT adapter (auto-detected and merged onto its base), identically to the
 other `*-reproduce` benchmarks.
+
+Passing the message list to the pipeline makes it apply **the judge model's own
+chat template**, so the prompt is model-dependent by design. A base (non-instruct)
+model has no template and would make the pipeline raise; `HFChatGenerator` detects
+that at load time, warns, and falls back to a plain `\n\n` concatenation of the
+message contents. `generator.prompt_format` reports which path is in use
+(`chat_template` / `concat`).

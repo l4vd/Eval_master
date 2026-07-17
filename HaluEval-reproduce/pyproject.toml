@@ -14,11 +14,11 @@ license = { file = "LICENSE" }
 # when `--model-path` is set) — including running your own checkpoint / LoRA
 # adapter via evaluation/hf_local.py.
 dependencies = [
-    "torch>=2.1",
-    "transformers>=4.44",
-    "accelerate>=0.33",
-    "datasets>=2.20",
-    "peft>=0.11",
+    "torch>=2.1,<3",
+    "transformers>=4.44,<5",
+    "accelerate>=0.33,<2",
+    "datasets>=2.20,<4",
+    "peft>=0.11,<1",
 ]
 
 [project.optional-dependencies]

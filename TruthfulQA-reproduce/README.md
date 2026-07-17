@@ -111,6 +111,9 @@ To test the performance of a new model on the generation task, add its answers t
 | `--output_path` | Location of results file |
 | `--cache_dir`  | Location of cached HuggingFace models |
 | `--gptj_path` | Location of GPT-J checkpoint |
+| `--prompt_style` | How the few-shot examples are presented: `completion` (default, the original raw `Q:/A:` string), `chat` (the model's own chat template), or `auto`. See "Prompt style" below |
+| `--judge_backend` | `local` (default) runs the judges in-process; `openai` is the legacy fine-tuned-GPT-3 path. See "GPT-judge / GPT-info" below |
+| `--truth_judge_id` / `--info_judge_id` | Judge model ids (or, with `--judge_backend openai`, your fine-tuned engine names) |
 
 
 | Model class       | Models
@@ -120,7 +123,53 @@ To test the performance of a new model on the generation task, add its answers t
 | GPT-2 | `gpt2`, `gpt2-xl` |
 | UnifiedQA | `uqa-small`, `uqa-base`, `uqa-large`, `uqa-3b` |
 
-When running GPT-3 models or using GPT-3 metrics (`judge`, `info`), you will be asked for your OpenAI API key and the names of your fine-tuned models.
+### GPT-judge / GPT-info
+
+The paper's headline generation metrics score truthfulness and informativeness with
+GPT-3 models fine-tuned by the authors. **That path no longer works**: the
+`openai.Completion` API and those fine-tuned engines are both retired.
+
+`--metrics judge info` therefore defaults to `--judge_backend local`, which runs the
+authors' released successor judges in-process:
+
+```bash
+python -m truthfulqa.evaluate --model_path <your checkpoint> --metrics mc judge info
+```
+
+Defaults are `allenai/truthfulqa-truth-judge-llama2-7B` and
+`allenai/truthfulqa-info-judge-llama2-7B` (override with `--truth_judge_id` /
+`--info_judge_id`). They are fine-tuned on the *same* prompt this repo already
+builds (`utilities.format_end2end_prompt`), scored the same way (the probability of
+a ` yes` continuation, thresholded at 0.5), so the metric definition — and
+comparability to the published numbers — is unchanged; only the engine differs. No
+API key is needed and it runs offline, but the two 7B judges must be in the HF cache
+(pre-download them on a login node before an offline cluster run).
+
+Each judged answer also gets a `<model> GPT-judge norm` column holding
+`P(yes) / (P(yes) + P(no))`, a diagnostic that is robust to a judge spreading
+probability mass over other tokens. The thresholded `acc` column still uses the raw
+upstream-comparable score.
+
+`--judge_backend openai` keeps the legacy path for a fine-tuned engine of your own;
+it reads `OPENAI_API_KEY` from the environment (the original interactive `input()`
+prompt was removed — it deadlocks when run as a subprocess under the launcher).
+
+### Prompt style
+
+TruthfulQA predates chat models: it presents every model the same raw `Q:/A:`
+few-shot completion string. That is not the format an instruct-tuned checkpoint was
+trained on, so `--prompt_style chat` instead renders the preset's few-shot pairs as
+user/assistant turns through the model's own chat template. The example content is
+parsed from the same preset, so only the framing changes; with no chat template
+available it falls back to `completion`.
+
+The choice moves the numbers materially (a 5-question smoke test with
+Qwen2.5-0.5B-Instruct gave MC2 0.06 under `completion` vs 0.26 under `chat`), so
+report which style you used and hold it fixed across compared models. The resolved
+style is recorded in `run_config.csv` alongside the results.
+
+The CLI defaults to `completion` (upstream behaviour); the central launcher defaults
+to `chat` — see `conf/truthfulqa/default.yaml`.
 
 ### Evaluate your own checkpoint (local model / LoRA adapter)
 

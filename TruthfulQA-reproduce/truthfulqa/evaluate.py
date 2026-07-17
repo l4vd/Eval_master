@@ -1,6 +1,9 @@
 import argparse
+import os
+import sys
 from . import models
 from . import metrics
+from . import prompting
 from . import utilities
 from .configs import ENGINE_MAP
 import warnings
@@ -9,7 +12,11 @@ import pandas as pd
 
 def format_frame(results):
 
-    results = results[[x for x in results.columns if (x != 'Context') and (results[x].dtype != 'O')]]
+    # Keep only the numeric score columns. This tested `dtype != 'O'`, which assumed
+    # text columns are always object dtype; modern pandas gives them StringDtype, so
+    # they slipped through and broke the .mean() below.
+    results = results[[x for x in results.columns
+                       if (x != 'Context') and pd.api.types.is_numeric_dtype(results[x])]]
 
     new_cols = []
     for col in results.columns:
@@ -35,6 +42,14 @@ def data_to_dict(results):
 
 def main():
 
+    # Model answers routinely contain characters the Windows console codepage
+    # (cp1252) cannot encode. Printing one then raises UnicodeEncodeError, which the
+    # broad `except` around each model aborts the whole generation loop on -- losing
+    # every remaining answer. Degrade unencodable characters instead.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(errors='replace')
+
     parser = argparse.ArgumentParser()
     parser.add_argument('--models', nargs='+', default=['neo-small'])
     parser.add_argument('--metrics', nargs='+', default=['bleu'])
@@ -57,6 +72,21 @@ def main():
     parser.add_argument('--dtype', type=str, default='float32',
                         choices=['bfloat16', 'float16', 'float32'],
                         help="dtype for --model_path (default float32 is CPU-safe).")
+    parser.add_argument('--prompt_style', type=str, default='completion',
+                        choices=list(prompting.VALID_STYLES),
+                        help="How to present the few-shot examples: 'completion' is the "
+                             "original raw Q:/A: string; 'chat' renders them through the "
+                             "model's own chat template; 'auto' picks chat when the "
+                             "tokenizer has a template. Default 'completion' (upstream).")
+    # --- GPT-judge / GPT-info (`--metrics judge info`; see judge_local.py) ---
+    parser.add_argument('--judge_backend', type=str, default='local', choices=['local', 'openai'],
+                        help="'local' runs the authors' successor judge models in-process "
+                             "(no API key). 'openai' is the legacy fine-tuned-GPT-3 path.")
+    parser.add_argument('--truth_judge_id', type=str, default='allenai/truthfulqa-truth-judge-llama2-7B',
+                        help="Truth judge: an HF id/path (--judge_backend local) or the name of "
+                             "your fine-tuned GPT-judge engine (--judge_backend openai).")
+    parser.add_argument('--info_judge_id', type=str, default='allenai/truthfulqa-info-judge-llama2-7B',
+                        help="Informativeness judge; see --truth_judge_id.")
     args = parser.parse_args()
 
     questions = utilities.load_questions(filename=args.input_path)
@@ -71,6 +101,7 @@ def main():
     # autoregressive (run_answers) and MC (run_probs) branches under the 'local' key.
     local_model = None
     local_tokenizer = None
+    prompt_style = args.prompt_style
     if args.model_path:
         from .hf_local import load_local_model
         local_model, local_tokenizer = load_local_model(
@@ -82,17 +113,43 @@ def main():
             dtype=args.dtype,
         )
         args.models = ['local']
+        # Resolve once, up front: 'chat' needs a chat template and a Q:/A:-shaped
+        # preset, and the resolved value is recorded alongside the results.
+        prompt_style = prompting.resolve_style(args.prompt_style, local_tokenizer, args.preset)
+        print("Prompt style: {0} (requested: {1}); preset: {2}".format(
+            prompt_style, args.prompt_style, args.preset))
+
+    check_m = [x for x in args.metrics if x in ['judge', 'info']]
+
+    # GPT-judge / GPT-info: load the local judges, or set up the legacy OpenAI path.
+    judges = {}
+    if len(check_m) and args.judge_backend == 'local':
+        from .judge_local import LocalJudge
+        judge_ids = {'judge': args.truth_judge_id, 'info': args.info_judge_id}
+        for metric in check_m:
+            print("Loading {0} judge: {1}".format(metric, judge_ids[metric]))
+            judges[metric] = LocalJudge(
+                judge_ids[metric],
+                cache_dir=args.cache_dir,
+                device=torch_device,
+                dtype=args.dtype,
+            )
 
     # check for GPT-3 models and set API key
     check = [x for x in args.models if x in ['ada', 'babbage', 'curie', 'davinci']]
-    check_m = [x for x in args.metrics if x in ['judge', 'info']]
-    if len(check) or len(check_m):  # OpenAI API access required
+    if len(check) or (len(check_m) and args.judge_backend == 'openai'):  # OpenAI API access required
         import openai  # lazy: the OpenAI reproduction path is optional
-        openai.api_key = input("Enter your OpenAI API key: ")
-        if 'judge' in check_m:
-            judge_name = input("Enter your finetuned GPT-judge model name: ")
-        if 'info' in check_m:
-            info_name = input("Enter your finetuned GPT-info model name: ")
+        # Read the key from the environment: this runs as a subprocess under the
+        # central launcher, where an interactive input() prompt would deadlock.
+        api_key = os.environ.get('OPENAI_API_KEY')
+        if not api_key:
+            raise SystemExit(
+                "The OpenAI path needs OPENAI_API_KEY to be set. Use --judge_backend local "
+                "to run the judges in-process instead (no API key needed)."
+            )
+        openai.api_key = api_key
+        judge_name = args.truth_judge_id
+        info_name = args.info_judge_id
 
     # populate frame with model answers
     for mdl in args.models:
@@ -113,11 +170,13 @@ def main():
         if mdl == 'local':
             try:
                 models.run_answers(questions, 'local', 'local', args.preset,
-                                   model=local_model, tokenizer=local_tokenizer, device=torch_device)
+                                   model=local_model, tokenizer=local_tokenizer, device=torch_device,
+                                   prompt_style=prompt_style)
                 utilities.save_questions(questions, args.output_path)
                 if 'mc' in args.metrics:
                     models.run_probs(questions, 'local', 'local', preset=args.preset,
-                                     model=local_model, tokenizer=local_tokenizer, device=torch_device)
+                                     model=local_model, tokenizer=local_tokenizer, device=torch_device,
+                                     prompt_style=prompt_style)
                     utilities.save_questions(questions, args.output_path)
             except Exception as err:
                 print(err)
@@ -196,13 +255,17 @@ def main():
                 except Exception as err:
                     print(err)
             elif metric in ['judge', 'info']:
+                tag = 'GPT-judge' if metric == 'judge' else 'GPT-info'
+                is_info = metric == 'info'
                 try:
-                    if metric == 'judge':
-                        questions = metrics.run_end2end_GPT3(model_key, 'GPT-judge', judge_name, questions, info=False)
-                        utilities.save_questions(questions, args.output_path)
+                    if args.judge_backend == 'local':
+                        questions = metrics.run_end2end_local(model_key, tag, judges[metric],
+                                                              questions, info=is_info)
                     else:
-                        questions = metrics.run_end2end_GPT3(model_key, 'GPT-info', info_name, questions, info=True)
-                        utilities.save_questions(questions, args.output_path)
+                        engine = info_name if is_info else judge_name
+                        questions = metrics.run_end2end_GPT3(model_key, tag, engine,
+                                                             questions, info=is_info)
+                    utilities.save_questions(questions, args.output_path)
                 except Exception as err:
                     print(err)
             else:
@@ -226,7 +289,28 @@ def main():
                                               'GPT-judge acc',
                                               'GPT-info acc'])]
     results = pd.pivot_table(results, 'Value', 'Model', 'Metric')
-    results.to_csv('summary.csv')
+    # Keep the summary next to the answers it summarizes; writing it to the cwd
+    # would drop it in the repo root and overwrite it on every run.
+    out_dir = os.path.dirname(os.path.abspath(args.output_path))
+    results.to_csv(os.path.join(out_dir, 'summary.csv'))
+
+    # Record what produced these numbers: the prompt format and judge engine are
+    # both configurable, so a bare score is not interpretable without them.
+    if args.model_path:
+        run_config = pd.DataFrame([{
+            'model_path': args.model_path,
+            'tokenizer_id': args.tokenizer_id or args.model_path,
+            'base_model_id': args.base_model_id,
+            'preset': args.preset,
+            'prompt_style_requested': args.prompt_style,
+            'prompt_style_resolved': prompt_style,
+            'metrics': ','.join(args.metrics),
+            'judge_backend': args.judge_backend if check_m else None,
+            'truth_judge_id': args.truth_judge_id if 'judge' in check_m else None,
+            'info_judge_id': args.info_judge_id if 'info' in check_m else None,
+            'dtype': args.dtype,
+        }])
+        run_config.to_csv(os.path.join(out_dir, 'run_config.csv'), index=False)
 
 
 if __name__ == '__main__':

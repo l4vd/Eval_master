@@ -7,6 +7,7 @@ group and translates them into each benchmark's own CLI.
 
 ```
 run_all.sh              # shell wrapper (forwards Hydra overrides)
+setup_envs.sh           # one-time: creates a virtualenv per benchmark
 run_benchmarks.py       # Hydra launcher: composes config → subprocess per benchmark
 conf/
 ├── config.yaml         # composition root: model + the four benchmark groups + run list
@@ -21,12 +22,30 @@ conf/
 
 ## Install
 
-The launcher itself only needs Hydra (each benchmark's own deps come from its
-`pyproject.toml`):
+The four benchmarks have incompatible dependency stacks, so each gets its own
+virtualenv. `./setup_envs.sh` creates them all (plus one for the launcher) with
+`uv sync`, honouring each folder's committed `uv.lock` so the stack is identical on
+every machine:
 
 ```bash
-pip install hydra-core omegaconf     # already present in the SP-DPO-Base env
+./setup_envs.sh                  # envs at <benchmark>/.venv
+./setup_envs.sh --hpc            # pinned cluster stack (pyproject-HPC.toml)
 ```
+
+`run_all.sh` then finds each interpreter automatically — no flags needed.
+
+> **Windows / OneDrive:** if this repo sits deep in the filesystem, an in-repo
+> `.venv` overflows the 260-character `MAX_PATH` limit and imports fail with a
+> confusing "No such file or directory" (`.venv/Lib/site-packages/transformers/
+> models/...` is already ~260 chars under a synced OneDrive path). Put the envs
+> somewhere short instead, and point the launcher at them:
+>
+> ```bash
+> ./setup_envs.sh --venv-root "$LOCALAPPDATA/eval-venvs"
+> export VENV_ROOT="$LOCALAPPDATA/eval-venvs"   # or: ./run_all.sh venv_root=...
+> ```
+>
+> This also keeps multi-GB torch installs out of OneDrive sync.
 
 ## Usage
 
@@ -60,8 +79,12 @@ Each benchmark is its own Hydra group — override any nested key:
 # FaithEval: one task, strict matching
 ./run_all.sh faitheval.tasks='[unanswerable]' faitheval.strict_match=true
 
-# TruthfulQA: add the (heavier) generation metrics as well as MC
-./run_all.sh truthfulqa.metrics='[mc,bleu]'
+# TruthfulQA: truthfulness + informativeness judges alongside MC
+./run_all.sh truthfulqa.metrics='[mc,judge,info]'
+
+# TruthfulQA: reproduce the original paper's raw Q:/A: prompt instead of the
+# model's chat template (see "Prompt format" below)
+./run_all.sh truthfulqa.prompt_style=completion
 
 # HaluEval: only the QA judge task
 ./run_all.sh halueval.tasks='[qa]'
@@ -94,13 +117,44 @@ Each benchmark is its own Hydra group — override any nested key:
 Point at your own checkpoint by editing `conf/model/_template.yaml` (then
 `model=_template`) or just overriding `model.id=...` on the CLI.
 
+## Prompt format
+
+Every benchmark builds its prompt with the **evaluated model's own tokenizer**, so
+an instruct checkpoint sees the turn markers it was tuned on:
+
+| Benchmark | Prompt | Chat template |
+| --- | --- | --- |
+| FaithEval | task instruction + context/question as chat messages | yes (falls back to plain concatenation for a base model with no template) |
+| HaluEval | system + user judge messages | yes (same fallback) |
+| RAGTruth stage 1 | the dataset item's own prompt | yes, explicit |
+| RAGTruth stage 2 | fixed `[INST] ... [/INST]` detector template | **no, by design** — the detector was fine-tuned on that exact string |
+| TruthfulQA | `truthfulqa.prompt_style` (below) | `chat` by default |
+
+TruthfulQA is the one with a real choice, because the original benchmark predates
+chat models and presents the same raw `Q:/A:` few-shot string to everything:
+
+- `prompt_style=chat` (default) renders the preset's few-shot pairs as
+  user/assistant turns through the model's chat template. The example *content* is
+  parsed from the same preset, so only the framing differs.
+- `prompt_style=completion` is the original string — use it to reproduce the
+  published protocol.
+- `prompt_style=auto` picks `chat` when the tokenizer has a template.
+
+The style materially moves the scores (on a 5-question smoke test with
+Qwen2.5-0.5B-Instruct, MC2 was 0.06 under `completion` vs 0.26 under `chat`), so
+**report which one you used** and keep it fixed across the models you compare. The
+resolved style is written to `run_config.csv` next to each run's answers.
+
+Base and DPO checkpoints share a tokenizer, so either style compares them fairly.
+
 ## Global options (`conf/config.yaml`)
 
 | Key | Purpose |
 | --- | --- |
 | `run` | which benchmarks to run, in order (subset of the four) |
 | `num_samples` | global sample cap for FaithEval / HaluEval / RAGTruth (TruthfulQA has none) |
-| `python` | interpreter for every benchmark; per-benchmark override `<benchmark>.python=...` |
+| `python` | interpreter for every benchmark; `auto` (default) finds each one's venv; per-benchmark override `<benchmark>.python=...` |
+| `venv_root` | where the per-benchmark venvs live; null = `<benchmark>/.venv`. Also read from `$VENV_ROOT` |
 | `dry_run` | print commands instead of executing |
 | `continue_on_error` | keep going if one benchmark fails (a summary prints regardless) |
 | `output_dir` | run directory; each benchmark writes to a subfolder |
@@ -114,17 +168,22 @@ what ran (and pass/fail) prints at the end.
 
 ## Separate environments per benchmark
 
-The four benchmarks have different dependency stacks. If you install each in its
-own virtualenv, point the launcher at each interpreter:
+`./setup_envs.sh` (see [Install](#install)) gives each benchmark its own virtualenv
+and `python: auto` finds them, so this normally needs no attention. To override:
 
 ```bash
-./run_all.sh \
-    faitheval.python=/envs/faitheval/bin/python \
-    ragtruth.python=/envs/ragtruth/bin/python
+# a specific interpreter for one benchmark
+./run_all.sh faitheval.python=/envs/faitheval/bin/python
+
+# one shared env for all four (they must all be installed in it)
+./run_all.sh python=python
 ```
 
-Otherwise a single env with all four installed (`pip install -e .` in each
-folder) works, and `python=...` sets one interpreter for all.
+Dependency versions are capped at major boundaries and pinned in a per-benchmark
+`uv.lock`. Install with `uv sync` (what `setup_envs.sh` does) rather than a bare
+`pip install`, or you will silently get a different stack than the one your earlier
+runs used — `transformers>=4.44` alone now resolves to 5.x, which this code does
+not target.
 
 ## HPC
 

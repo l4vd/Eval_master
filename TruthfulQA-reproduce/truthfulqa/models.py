@@ -5,6 +5,7 @@ from .utilities import (
     format_best,
     find_start,
 )
+from . import prompting
 from .configs import BEST_COL, ANSWER_COL, INCORRECT_COL
 from transformers import AutoModelForCausalLM, AutoTokenizer, \
     T5ForConditionalGeneration, GPTNeoForCausalLM, AutoConfig
@@ -26,7 +27,9 @@ def run_GPT3(frame, engine, tag, preset='qa', verbose=False):
     if tag not in frame.columns:
         frame[tag] = ''
 
-    frame[tag].fillna('', inplace=True)
+    # Assign: the `inplace=True` form is a no-op under pandas copy-on-write, so
+    # NaNs became the string 'nan' and the resume check below skipped those rows.
+    frame[tag] = frame[tag].fillna('')
     frame[tag] = frame[tag].astype(str)
 
     for idx in frame.index:
@@ -176,7 +179,9 @@ def run_UnifQA(frame, engine, tag, preset='qa', verbose=False, device=None, cach
     if tag not in frame.columns:
         frame[tag] = ''
 
-    frame[tag].fillna('', inplace=True)
+    # Assign: the `inplace=True` form is a no-op under pandas copy-on-write, so
+    # NaNs became the string 'nan' and the resume check below skipped those rows.
+    frame[tag] = frame[tag].fillna('')
     frame[tag] = frame[tag].astype(str)
 
     model = T5ForConditionalGeneration.from_pretrained(engine, cache_dir=cache_dir).to(device)
@@ -204,14 +209,22 @@ def run_UnifQA(frame, engine, tag, preset='qa', verbose=False, device=None, cach
     return frame
 
 
-def run_answers(frame, engine, tag, preset, model=None, tokenizer=None, verbose=True, device=None, cache_dir=None):
+def run_answers(frame, engine, tag, preset, model=None, tokenizer=None, verbose=True, device=None,
+                cache_dir=None, prompt_style='completion'):
 
-    """Stores answers from autoregressive HF models (GPT-2, GPT-Neo)"""
+    """Stores answers from autoregressive HF models (GPT-2, GPT-Neo, local checkpoints)
+
+    `prompt_style` ('chat' or 'completion', already resolved by the caller) selects
+    whether the few-shot examples are rendered through the model's chat template or
+    as the original raw `Q:/A:` string. See `prompting.py`.
+    """
 
     if tag not in frame.columns:
         frame[tag] = ''
 
-    frame[tag].fillna('', inplace=True)
+    # Assign: the `inplace=True` form is a no-op under pandas copy-on-write, so
+    # NaNs became the string 'nan' and the resume check below skipped those rows.
+    frame[tag] = frame[tag].fillna('')
     frame[tag] = frame[tag].astype(str)
 
     if model is None:
@@ -220,47 +233,34 @@ def run_answers(frame, engine, tag, preset, model=None, tokenizer=None, verbose=
     if tokenizer is None:
         tokenizer = AutoTokenizer.from_pretrained(engine, cache_dir=cache_dir)
 
-    # get tokens for ending sequence
-    seq_start = np.array(tokenizer('A:')['input_ids'])
-    seq_end = np.array(tokenizer('Q:')['input_ids'])
-
     with torch.no_grad():
         for idx in frame.index:
             if pd.isnull(frame.loc[idx, tag]) or not len(frame.loc[idx, tag]):
-                prompt = format_prompt(frame.loc[idx], preset, format='general')
-
-                input_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(device)
+                # The prompt ends exactly where the answer begins, so the generated
+                # tokens are the answer -- no need to hunt for an 'A:' subsequence
+                # (whose token ids are tokenizer-specific).
+                prompt_ids = prompting.context_ids(
+                    frame.loc[idx, 'Question'], preset, tokenizer, prompt_style
+                )
+                input_ids = torch.tensor([prompt_ids], device=device)
                 max_len = input_ids.shape[-1] + 50
 
                 outputs = model.generate(input_ids, top_k=1, max_length=max_len, num_return_sequences=1,
-                                         output_scores=True)
-                sequences, scores = outputs.sequences, outputs.scores
+                                         output_scores=True, pad_token_id=tokenizer.pad_token_id)
+                sequences = outputs.sequences
 
                 # skip the tokens in the input prompt
                 gen_sequences = sequences[:, input_ids.shape[-1]:][0, :]
-                gen_arr = gen_sequences.cpu().numpy()
+                output_str = tokenizer.decode(gen_sequences, skip_special_tokens=True).strip()
 
-                # find indexes of answer, skipping A: (start of answer) and Q: (end of answer)
-                idx_start = find_subsequence(gen_arr, seq_start, start=True)
-                idx_end = find_subsequence(gen_arr, seq_end, start=False)
-
-                gen_sequences = gen_sequences[idx_start:idx_end]
-                output_str = tokenizer.decode(gen_sequences, skip_special_tokens=True)
-                output_str = output_str.strip()
+                # In completion style nothing stops the model continuing with the next
+                # few-shot turn, so cut at it (the original did this by searching for
+                # 'Q:' token ids). Chat style stops at the template's EOS.
+                if prompt_style == 'completion':
+                    output_str = _truncate_at_next_question(output_str)
 
                 if verbose:
                     print('MODEL OUTPUT: {0}'.format(output_str))
-
-                scores = torch.stack(scores, dim=1)
-                scores = scores.squeeze(0)  # skip if running on a batch!
-                scores = scores[idx_start:idx_end, :]
-
-                # convert logits to log probs
-                log_probs = scores.log_softmax(-1)
-                log_probs = log_probs[range(scores.shape[0]), gen_sequences]
-
-                probs = scores.softmax(-1)
-                probs = probs[range(scores.shape[0]), gen_sequences]
 
                 frame.loc[idx, tag] = output_str
 
@@ -270,9 +270,53 @@ def run_answers(frame, engine, tag, preset, model=None, tokenizer=None, verbose=
     return frame
 
 
-def run_probs(frame, engine, tag, preset='qa', model=None, tokenizer=None, device=None, cache_dir=None):
+def _truncate_at_next_question(text):
 
-    """Runs multiple-choice metrics for autoregressive HuggingFace models (GPT-2, GPT-Neo)"""
+    """Cuts a completion-style generation at the start of a hallucinated next turn.
+
+    The few-shot primer trains the model to continue with another `Q:`; the original
+    code cut there too (by searching for `Q:`'s token ids in the generation).
+    """
+
+    for marker in ('\nQ:', 'Q:'):
+        pos = text.find(marker)
+        if pos != -1:
+            text = text[:pos]
+    return text.strip()
+
+
+def _score_answer(model, tokenizer, question, answer, preset, device, prompt_style):
+
+    """Sum of the log-probs the model assigns to `answer` given the prompt.
+
+    The scored span is `full_ids[len(prefix_ids):]` -- derived from tokenized
+    prefix lengths, so it is exact for any tokenizer. (The original code assumed
+    the `'\\nA: '` cue was always 3 tokens, which holds for GPT-2's BPE but not
+    for e.g. the Qwen or Llama tokenizers.)
+    """
+
+    prefix_ids, full_ids = prompting.answer_span_ids(question, answer, preset, tokenizer, prompt_style)
+    start = len(prefix_ids)
+
+    input_ids = torch.tensor([full_ids], device=device)
+    logits = model(input_ids)[0].squeeze(0)
+    log_probs = logits.log_softmax(-1)
+
+    # Position i-1 predicts token i, so the answer's log-probs live at [start-1:-1].
+    answer_log_probs = log_probs[start - 1: -1, :]
+    answer_ids = input_ids[0, start:]
+    token_log_probs = answer_log_probs[range(answer_log_probs.shape[0]), answer_ids]
+
+    return token_log_probs.sum().item()
+
+
+def run_probs(frame, engine, tag, preset='qa', model=None, tokenizer=None, device=None, cache_dir=None,
+              prompt_style='completion'):
+
+    """Runs multiple-choice metrics for autoregressive HuggingFace models (GPT-2, GPT-Neo)
+
+    `prompt_style` ('chat' or 'completion') is resolved by the caller; see `prompting.py`.
+    """
 
     set_columns(tag, frame)
 
@@ -299,54 +343,15 @@ def run_probs(frame, engine, tag, preset='qa', model=None, tokenizer=None, devic
                 ref_true = split_multi_answer(frame.loc[idx, ANSWER_COL])
                 ref_false = split_multi_answer(frame.loc[idx, INCORRECT_COL])
 
-                scores_true = []
-                scores_false = []
-
-                input_prompt = format_prompt(frame.loc[idx], preset, format='general')
-
-                for temp_ans in ref_true:
-                    # append the current answer choice to the prompt
-                    prompt = format_prompt_with_answer_strings(frame.loc[idx, 'Question'],
-                                                               temp_ans,
-                                                               preset,
-                                                               format='general')
-                    input_ids = tokenizer(input_prompt, return_tensors="pt").input_ids.to(device)
-                    prompt_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(device)
-
-                    outputs = model(prompt_ids)[0].squeeze(0)
-                    outputs = outputs.log_softmax(-1)  # logits to log probs
-
-                    # skip tokens in the prompt -- we only care about the answer
-                    outputs = outputs[input_ids.shape[-1] - 1: -1, :]
-                    prompt_ids = prompt_ids[0, input_ids.shape[-1]:]
-
-                    # get logprobs for each token in the answer
-                    log_probs = outputs[range(outputs.shape[0]), prompt_ids.squeeze(0)]
-                    log_probs = log_probs[3:]  # drop the '\nA:' prefix
-
-                    scores_true.append(log_probs.sum().item())
-
-                for temp_ans in ref_false:
-                    # append the current answer choice to the prompt
-                    prompt = format_prompt_with_answer_strings(frame.loc[idx, 'Question'],
-                                                               temp_ans,
-                                                               preset,
-                                                               format='general')
-                    input_ids = tokenizer(input_prompt, return_tensors="pt").input_ids.to(device)
-                    prompt_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(device)
-
-                    outputs = model(prompt_ids)[0].squeeze(0)
-                    outputs = outputs.log_softmax(-1)  # logits to log probs
-
-                    # skip tokens in the prompt -- we only care about the answer
-                    outputs = outputs[input_ids.shape[-1] - 1: -1, :]
-                    prompt_ids = prompt_ids[0, input_ids.shape[-1]:]
-
-                    # get logprobs for each token in the answer
-                    log_probs = outputs[range(outputs.shape[0]), prompt_ids.squeeze(0)]
-                    log_probs = log_probs[3:] # drop the '\nA:' prefix
-
-                    scores_false.append(log_probs.sum().item())
+                question = frame.loc[idx, 'Question']
+                scores_true = [
+                    _score_answer(model, tokenizer, question, temp_ans, preset, device, prompt_style)
+                    for temp_ans in ref_true
+                ]
+                scores_false = [
+                    _score_answer(model, tokenizer, question, temp_ans, preset, device, prompt_style)
+                    for temp_ans in ref_false
+                ]
 
                 MC_calcs(tag, frame, idx, scores_true, scores_false, ref_true, ref_best)
 
@@ -383,7 +388,9 @@ def run_GPTJ(frame, tag, preset='qa', device=None, cache_dir=None, check_path=No
     if tag not in frame.columns:
         frame[tag] = ''
 
-    frame[tag].fillna('', inplace=True)
+    # Assign: the `inplace=True` form is a no-op under pandas copy-on-write, so
+    # NaNs became the string 'nan' and the resume check below skipped those rows.
+    frame[tag] = frame[tag].fillna('')
     frame[tag] = frame[tag].astype(str)
 
     for idx in frame.index:

@@ -120,6 +120,19 @@ class HFChatGenerator:
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
+        self.tokenizer = tokenizer
+        # The prompt is rendered with the evaluated model's own chat template, so the
+        # wire format matches what the model was tuned on. A base (non-instruct) model
+        # has no template; `generate` falls back to a plain concatenation rather than
+        # failing, so such models can still be evaluated (see `_has_chat_template`).
+        self._has_chat_template = getattr(tokenizer, "chat_template", None) is not None
+        if not self._has_chat_template:
+            logger.warning(
+                "Tokenizer for %s has no chat template (base, non-instruct model?); "
+                "falling back to plain concatenation of the message contents.",
+                resolved_tokenizer_id,
+            )
+
         self._generator = pipeline(
             "text-generation",
             model=model,
@@ -127,6 +140,11 @@ class HFChatGenerator:
             trust_remote_code=True,
             device_map=device_map,
         )
+
+    @property
+    def prompt_format(self) -> str:
+        """'chat_template' or 'concat' — recorded alongside results for provenance."""
+        return "chat_template" if self._has_chat_template else "concat"
 
     def generate(self, messages: list[dict[str, str]], params: GenerationParams) -> str:
         """Generate a single completion for a chat-formatted prompt."""
@@ -138,5 +156,11 @@ class HFChatGenerator:
             kwargs["temperature"] = params.temperature
             kwargs["top_p"] = params.top_p
 
+        if not self._has_chat_template:
+            prompt = "\n\n".join(m["content"].strip() for m in messages)
+            outputs = self._generator(prompt, return_full_text=False, **kwargs)
+            return outputs[0]["generated_text"].strip()
+
+        # Passing the message list makes the pipeline apply the tokenizer's template.
         outputs = self._generator(messages, **kwargs)
         return outputs[0]["generated_text"][-1]["content"].strip()

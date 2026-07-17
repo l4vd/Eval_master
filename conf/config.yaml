@@ -23,9 +23,23 @@ run: [faitheval, truthfulqa, halueval, ragtruth]
 # whole questions CSV); pre-truncate the CSV if you need a subset there.
 num_samples: null
 
-# Interpreter used to launch each benchmark. Override globally with `python=...`
-# or per-benchmark with `<benchmark>.python=...` (e.g. one venv per folder).
-python: python
+# Interpreter used to launch each benchmark. `auto` resolves each benchmark's own
+# virtualenv (created by ./setup_envs.sh) — the four have incompatible dependency
+# stacks, so they are installed separately. Override globally with `python=...`
+# (e.g. `python=python` for one shared env) or per-benchmark with
+# `<benchmark>.python=/path/to/python`.
+python: auto
+
+# Where the per-benchmark virtualenvs live. null = each benchmark's own
+# `<folder>/.venv` (the default; correct on Linux / the cluster).
+#
+# Set this to relocate them to `<venv_root>/<benchmark-folder>`. Needed on Windows
+# when this repo sits deep in the filesystem: `.venv/Lib/site-packages/...` then
+# exceeds the 260-character MAX_PATH limit and imports fail with a confusing
+# "No such file or directory". It also keeps multi-GB installs out of OneDrive.
+# Pass the same value to ./setup_envs.sh (or set the VENV_ROOT env var), e.g.:
+#   venv_root: ${oc.env:LOCALAPPDATA}/eval-venvs
+venv_root: ${oc.decode:${oc.env:VENV_ROOT,null}}
 
 # Print the commands instead of running them.
 dry_run: false

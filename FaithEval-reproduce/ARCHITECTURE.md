@@ -97,6 +97,19 @@ This is the exact contract every benchmark in `Eval_master/` implements, so a
 checkpoint from the sibling `SP-DPO-Base` training pipeline
 (`outputs/<run>/final_checkpoint`, full **or** LoRA) drops into any of them.
 
+## Prompt format
+
+`prompting.build_messages` returns chat messages, and `HFChatGenerator.generate`
+hands that list to the text-generation pipeline, which applies **the evaluated
+model's own chat template** — so the wire format matches what the model was tuned
+on, and differs per model by design.
+
+A base (non-instruct) model has no chat template, which would make the pipeline
+raise. `HFChatGenerator` detects that at load time, logs a warning, and falls back
+to a plain `\n\n` concatenation of the message contents so such models remain
+evaluable. `generator.prompt_format` reports which path is in use
+(`chat_template` / `concat`).
+
 ## Install
 
 See [`README.md`](./README.md) for the local install; on the cluster use

@@ -123,6 +123,18 @@ class HFChatGenerator:
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 
+        self.tokenizer = tokenizer
+        # The judge prompt is rendered with the model's own chat template, so the wire
+        # format matches what it was tuned on. A base (non-instruct) model has no
+        # template; `generate` falls back to a plain concatenation rather than failing.
+        self._has_chat_template = getattr(tokenizer, "chat_template", None) is not None
+        if not self._has_chat_template:
+            logger.warning(
+                "Tokenizer for %s has no chat template (base, non-instruct model?); "
+                "falling back to plain concatenation of the message contents.",
+                resolved_tokenizer_id,
+            )
+
         self._generator = pipeline(
             "text-generation",
             model=model,
@@ -131,10 +143,23 @@ class HFChatGenerator:
             device_map=device_map,
         )
 
+    @property
+    def prompt_format(self) -> str:
+        """'chat_template' or 'concat' — recorded alongside results for provenance."""
+        return "chat_template" if self._has_chat_template else "concat"
+
     def generate(self, messages: list[dict[str, str]]) -> str:
         """Generate a judgement (ideally 'Yes'/'No') for chat-formatted messages.
 
         Greedy decoding; the caller normalizes the returned text to Yes/No.
         """
+        if not self._has_chat_template:
+            prompt = "\n\n".join(m["content"].strip() for m in messages)
+            outputs = self._generator(
+                prompt, max_new_tokens=self.max_new_tokens, do_sample=False, return_full_text=False
+            )
+            return outputs[0]["generated_text"].strip()
+
+        # Passing the message list makes the pipeline apply the tokenizer's template.
         outputs = self._generator(messages, max_new_tokens=self.max_new_tokens, do_sample=False)
         return outputs[0]["generated_text"][-1]["content"].strip()

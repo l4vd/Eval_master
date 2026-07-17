@@ -12,11 +12,11 @@ license = { file = "LICENSE" }
 
 # Core deps for the in-process two-stage pipeline (generation model + detector).
 dependencies = [
-    "torch>=2.1",
-    "transformers>=4.44",
-    "accelerate>=0.33",
-    "datasets>=2.20",
-    "peft>=0.11",
+    "torch>=2.1,<3",
+    "transformers>=4.44,<5",
+    "accelerate>=0.33,<2",
+    "datasets>=2.20,<4",
+    "peft>=0.11,<1",
     "pandas>=1.5",
     "scikit-learn>=1.1",
     "tqdm>=4.66",

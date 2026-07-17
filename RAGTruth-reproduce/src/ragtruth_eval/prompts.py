@@ -73,6 +73,15 @@ def build_detector_prompt(item: dict[str, Any]) -> str:
     for QA). Equivalent to
     ``process_dialog_to_single_turn(item, tokenizer, return_prompt=True)`` +
     the ``[INST] ... [/INST]`` wrap the baseline client applied.
+
+    Unlike Stage 1 (``build_generation_messages``, which goes through the evaluated
+    model's own chat template), this wrap is **fixed and deliberately
+    model-independent**: it is part of the detector's interface, not a stylistic
+    choice. ``CodingLL/RAGTruth_Eval`` was fine-tuned on exactly this string, so
+    the caller sends it via ``HFGenerator.complete`` (raw tokenization), bypassing
+    any chat template. Rendering it through a chat template instead would take the
+    detector off-distribution and invalidate its hallucination labels -- do not
+    "modernize" this to ``apply_chat_template``.
     """
     task_type = item["task_type"]
     if task_type == "QA":
