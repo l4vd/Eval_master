@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eval-master"
+version = "0.1.0"
+description = "Central Hydra launcher — HPC / Linux variant pinned to the cluster's known-good stack (Python 3.12)."
+readme = "README-runner.md"
+# The HPC provides Python 3.12 modules and the known-good cluster env (`topollm`)
+# pins 3.12. Stay inside that window.
+requires-python = ">=3.12,<3.13"
+
+# --- Versioning policy for this file -------------------------------------------
+# hydra-core / omegaconf are the only deps the launcher itself needs — pinned to
+# the same ranges already known to resolve on the HPC PyPI mirror via the
+# `topollm` / `SP-DPO-Base` environment (marked "[cluster]"). Each benchmark
+# brings its own stack in its own virtualenv (see setup_envs.sh --hpc).
+# -------------------------------------------------------------------------------
+dependencies = [
+    "omegaconf>=2.3.0",    # [cluster]
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.uv]
+index-strategy = "unsafe-best-match"
+
+[tool.uv.sources]
+hydra-hpc-launcher = { git = "https://github.com/carelvniekerk/Hydra-HPC-Launcher.git", rev = "main" }
+
+# The HPC compute nodes have no internet; uv must install from the cluster PyPI
+# mirror. Uncomment and set the mirror (as the working `topollm` project does)
+# before running `uv sync` on the cluster:
+#
+# [[tool.uv.index]]
+# name = "cluster-mirror"
+# url = "<CLUSTER_PYPI_MIRROR_URL>"
+# default = true
+
+# run_benchmarks.py is a script run in place rather than an importable package,
+# so no package is declared; `uv sync` just installs the dependencies above.
+[tool.setuptools]
+py-modules = []

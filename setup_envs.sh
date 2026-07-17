@@ -62,10 +62,23 @@ venv_dir() {
 }
 
 # The launcher itself only needs Hydra; the benchmarks bring their own stacks.
-LAUNCHER_VENV="$(venv_dir Eval_master)"
+# Mirrors run_all.sh's own resolution (SCRIPT_DIR *is* the launcher's project
+# root, unlike the benchmarks which live in subfolders of it).
+if [[ -n "${VENV_ROOT}" ]]; then
+    LAUNCHER_VENV="${VENV_ROOT}/Eval_master"
+else
+    LAUNCHER_VENV="${SCRIPT_DIR}/.venv"
+fi
 echo "==> Launcher env: ${LAUNCHER_VENV}"
-uv venv "${LAUNCHER_VENV}"
-uv pip install --python "${LAUNCHER_VENV}" hydra-core omegaconf
+
+if $HPC; then
+    [[ -f "${SCRIPT_DIR}/pyproject.toml.orig" ]] || cp "${SCRIPT_DIR}/pyproject.toml" "${SCRIPT_DIR}/pyproject.toml.orig"
+    cp "${SCRIPT_DIR}/pyproject-HPC.toml" "${SCRIPT_DIR}/pyproject.toml"
+fi
+
+# `uv sync` (not `uv pip install`) so the committed uv.lock is honoured, same as
+# every benchmark below.
+(cd "${SCRIPT_DIR}" && UV_PROJECT_ENVIRONMENT="${LAUNCHER_VENV}" uv sync --extra dev)
 
 for bench in "${BENCHMARKS[@]}"; do
     folder="${SCRIPT_DIR}/${bench}"

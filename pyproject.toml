@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eval-master"
+version = "0.1.0"
+description = "Central Hydra launcher that composes one shared model config and runs the four *-reproduce benchmarks (FaithEval, TruthfulQA, HaluEval, RAGTruth) as subprocesses in their own per-benchmark environments."
+readme = "README-runner.md"
+requires-python = ">=3.9"
+
+# The launcher itself only needs Hydra; each benchmark brings its own stack in
+# its own virtualenv (see setup_envs.sh / README-runner.md).
+dependencies = [
+    "hydra-core>=1.3.0",
+    "omegaconf>=2.3.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+# run_benchmarks.py is a script run in place rather than an importable package,
+# so no package is declared; `uv sync` just installs the dependencies above.
+[tool.setuptools]
+py-modules = []

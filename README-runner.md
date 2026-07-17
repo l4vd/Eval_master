@@ -187,9 +187,12 @@ not target.
 
 ## HPC
 
-The launcher is stack-agnostic — it only shells out. Install each benchmark from
-its `pyproject-HPC.toml` (see each folder's README "Install (HPC)"), pre-download
-models/detector into the HF cache, and run `./run_all.sh` inside your SLURM job
-with `model.dtype=float32`/`float16` and offline env vars set as usual. Because
-the rewritten RAGTruth no longer needs a TGI server, the whole suite runs on a
+The launcher itself is stack-agnostic — it only shells out and needs Hydra —
+but `./setup_envs.sh --hpc` also swaps *its own* `pyproject.toml` for
+`pyproject-HPC.toml` (pinned to the cluster's Python 3.12), same as every
+benchmark. Install each benchmark from its `pyproject-HPC.toml` (see each
+folder's README "Install (HPC)"), pre-download models/detector into the HF
+cache, and run `./run_all.sh` inside your SLURM job with
+`model.dtype=float32`/`float16` and offline env vars set as usual. Because the
+rewritten RAGTruth no longer needs a TGI server, the whole suite runs on a
 stock GPU node.
