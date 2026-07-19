@@ -160,7 +160,8 @@ def build_halueval(cfg: DictConfig, out: Path) -> list[list[str]]:
     samples = _resolve_samples(b, cfg)
     cmds = []
     for task in b.tasks:
-        # HaluEval writes results under evaluation/<task>/; cwd is that folder.
+        # cwd is evaluation/ (evaluate.py reads its instruction/data files relative
+        # to it); --output-dir sends the results into the unified output tree anyway.
         cmd = (
             ["evaluate.py", "--task", str(task), "--backend", str(b.backend)]
             + ["--model-path", str(cfg.model.id)]
@@ -168,6 +169,7 @@ def build_halueval(cfg: DictConfig, out: Path) -> list[list[str]]:
             + ["--dtype", str(cfg.model.dtype), "--device-map", str(cfg.model.device_map)]
             + ["--max-new-tokens", str(b.max_new_tokens)]
             + _opt("--num-samples", samples)
+            + ["--output-dir", str(out / "halueval")]
             + list(b.extra_args)
         )
         cmds.append(cmd)
@@ -238,7 +240,7 @@ def main(cfg: DictConfig) -> None:
     if not cfg.dry_run:
         # TruthfulQA's `--output_path` (a file) needs its parent to exist before
         # the subprocess writes to it; the others create their own --output-dir.
-        for sub in ("faitheval", "truthfulqa", "ragtruth", "harness"):
+        for sub in ("faitheval", "truthfulqa", "halueval", "ragtruth", "harness"):
             (out / sub).mkdir(parents=True, exist_ok=True)
     print(f"==> Output dir: {out}")
     print(f"==> Model: {cfg.model.id} (dtype={cfg.model.dtype})")

@@ -238,7 +238,9 @@ def evaluation_qa_dataset(model, file, instruction, output_path, backend="openai
             print('sample {} success......'.format(i))
             dump_jsonl(gen, output_path, append=True)
 
-        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(correct, incorrect, correct/n))
+        accuracy = correct / n if n else 0.0
+        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(correct, incorrect, accuracy))
+        return {"num_examples": n, "num_correct": correct, "num_incorrect": incorrect, "accuracy": accuracy}
 
 
 def evaluation_dialogue_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None):
@@ -292,7 +294,9 @@ def evaluation_dialogue_dataset(model, file, instruction, output_path, backend="
             print('sample {} success......'.format(i))
             dump_jsonl(gen, output_path, append=True)
 
-        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(correct, incorrect, correct / n))
+        accuracy = correct / n if n else 0.0
+        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(correct, incorrect, accuracy))
+        return {"num_examples": n, "num_correct": correct, "num_incorrect": incorrect, "accuracy": accuracy}
 
 
 def evaluation_summarization_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None):
@@ -346,7 +350,9 @@ def evaluation_summarization_dataset(model, file, instruction, output_path, back
             print('sample {} success......'.format(i))
             dump_jsonl(gen, output_path, append=True)
 
-        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(correct, incorrect, correct / n))
+        accuracy = correct / n if n else 0.0
+        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(correct, incorrect, accuracy))
+        return {"num_examples": n, "num_correct": correct, "num_incorrect": incorrect, "accuracy": accuracy}
 
 
 def dump_jsonl(data, output_path, append=False):
@@ -385,6 +391,9 @@ if __name__ == '__main__':
                         help="Max new tokens for the HF judge (a Yes/No answer is short).")
     parser.add_argument("--num-samples", dest="num_samples", type=int, default=None,
                         help="Evaluate only the first N examples (useful for smoke tests).")
+    parser.add_argument("--output-dir", dest="output_dir", default=None,
+                        help="Directory for the per-sample results and summary JSON. Defaults to the "
+                             "in-repo '<task>/' folder (legacy behaviour) when unset.")
     args = parser.parse_args()
 
     backend = args.backend or ("hf" if args.model_path else "openai")
@@ -410,16 +419,38 @@ if __name__ == '__main__':
 
     model = args.model
     label = args.model_path.replace("/", "_").replace("\\", "_") if (backend == "hf" and args.model_path) else args.model
-    output_path = "{}/{}_{}_results.json".format(args.task, args.task, label)
+
+    # Where the per-sample results (and summary) are written. With --output-dir the
+    # artifacts land in the run's unified output tree (alongside the other
+    # benchmarks); without it, the legacy in-repo '<task>/' location is kept.
+    if args.output_dir:
+        os.makedirs(args.output_dir, exist_ok=True)
+        results_dir = args.output_dir
+    else:
+        results_dir = args.task
+    output_path = os.path.join(results_dir, "{}_{}_results.json".format(args.task, label))
+
+    # Truncate any results from a previous run: the per-sample writes below append,
+    # so without this a re-run would accumulate stale rows on top of the old file.
+    open(output_path, 'w', encoding='utf-8').close()
 
     data = "../data/{}_data.json".format(args.task)
 
     kwargs = dict(backend=backend, generator=generator, num_samples=args.num_samples)
     if args.task == "qa":
-        evaluation_qa_dataset(model, data, instruction, output_path, **kwargs)
+        stats = evaluation_qa_dataset(model, data, instruction, output_path, **kwargs)
     elif args.task == "dialogue":
-        evaluation_dialogue_dataset(model, data, instruction, output_path, **kwargs)
+        stats = evaluation_dialogue_dataset(model, data, instruction, output_path, **kwargs)
     elif args.task == "summarization":
-        evaluation_summarization_dataset(model, data, instruction, output_path, **kwargs)
+        stats = evaluation_summarization_dataset(model, data, instruction, output_path, **kwargs)
     else:
         raise ValueError("The task must be qa, dialogue, or summarization!")
+
+    # Persist the headline accuracy so the stored run is self-contained (the other
+    # four benchmarks all write a summary; HaluEval previously only printed it).
+    summary = {"task": args.task, "model": label, "backend": backend}
+    summary.update(stats or {})
+    summary_path = os.path.join(results_dir, "{}_{}_summary.json".format(args.task, label))
+    with open(summary_path, 'w', encoding='utf-8') as f:
+        json.dump(summary, f, indent=2)
+    print("Summary written to {}".format(summary_path))
