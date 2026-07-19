@@ -214,6 +214,37 @@ or, equivalently, via the installed console script:
 faitheval-eval --task unanswerable --model-id meta-llama/Meta-Llama-3.1-8B-Instruct
 ```
 
+#### Preparing the datasets (required before an offline run)
+
+By default the CLI loads each task split from a **local, pre-materialised** copy
+of the FaithEval datasets under [`data/faitheval/`](./data/faitheval) — one plain
+JSON Lines file per task (e.g. `data/faitheval/FaithEval-unanswerable-v1.0/test.jsonl`).
+This is what makes the cluster run fully offline **and** immune to a Hugging Face
+`datasets` cache-format incompatibility: the HPC stack pins `datasets<3`, which
+cannot read an arrow cache written by `datasets>=4` (list columns use the newer
+`List`/`LargeList` feature type → `TypeError: must be called with a dataclass
+type or instance`). Plain JSONL carries no such metadata and loads on any
+`datasets` version.
+
+Materialise the data **once, on a machine with internet access** (your laptop, or
+an HPC login node with connectivity — the `datasets` version there does not
+matter):
+
+```bash
+python scripts/prepare_datasets.py            # exports every configs/*.yaml task, split=test
+```
+
+This writes the JSONL files into `data/faitheval/`. Then make them available to
+the compute nodes — either commit `data/faitheval/` to the repo, copy it over
+(`rsync`/`scp`), or stage it elsewhere and point the eval at it with
+`export FAITHEVAL_DATA_DIR=/path/to/faitheval`.
+
+> **Online / unpinned alternative:** if you have internet access and are *not*
+> constrained to `datasets<3`, you can skip this step and load straight from the
+> Hub. The original `load_dataset` implementation is preserved (commented) at the
+> bottom of [`src/faitheval/data.py`](./src/faitheval/data.py) — point
+> `_load_split` at `_load_split_from_hub` to restore it.
+
 #### Install (HPC)
 
 The default `pyproject.toml` targets a modern stack. On the cluster, use the
@@ -230,9 +261,12 @@ uv sync
 > **Mirror:** compute nodes have no internet. Before `uv sync`, uncomment the
 > `[[tool.uv.index]]` block in `pyproject-HPC.toml` and point it at the cluster
 > PyPI mirror (the same URL `topollm` / `SP-DPO-Base` use). Pre-download the
-> evaluation model, tokenizer, and dataset into the HF cache on a login node,
-> then export `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1` on
-> the compute nodes. See `SP-DPO-Base/README-HPC.md` for the full offline recipe.
+> evaluation model and tokenizer into the HF cache on a login node, and
+> materialise the datasets into `data/faitheval/` with
+> `scripts/prepare_datasets.py` (see "Preparing the datasets" above — the eval no
+> longer reads datasets from the HF cache). Then export
+> `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1` on the compute nodes. See
+> `SP-DPO-Base/README-HPC.md` for the full offline recipe.
 
 Useful flags (see `faitheval-eval --help` for the full list):
 

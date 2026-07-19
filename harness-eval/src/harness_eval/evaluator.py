@@ -58,7 +58,12 @@ def run_evaluation(
         from lm_eval import simple_evaluate
         from lm_eval.tasks import TaskManager
 
+        from harness_eval._datasets_compat import install_list_feature_compat
         from harness_eval.tasks import resolve_tasks
+
+        # lm_eval loads task datasets from the HF cache; guard against a cache
+        # written by datasets>=4 being read by the pinned datasets<4.
+        install_list_feature_compat()
 
         task_manager = TaskManager()
         resolved_tasks = resolve_tasks(config.tasks, task_manager)

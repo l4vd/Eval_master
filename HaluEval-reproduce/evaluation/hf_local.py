@@ -64,6 +64,28 @@ def _is_peft_adapter(model_path: str) -> bool:
     return (Path(model_path) / "adapter_config.json").is_file()
 
 
+def _is_hf_hub_offline() -> bool:
+    return os.environ.get("HF_HUB_OFFLINE") == "1" or os.environ.get("TRANSFORMERS_OFFLINE") == "1"
+
+
+def _reraise_if_offline_cache_miss(model_id: str, exc: OSError) -> None:
+    """Turn huggingface_hub's offline-cache-miss `OSError` into an actionable one.
+
+    On this project's HPC setup (see README.md "Mirror / offline"), compute nodes
+    export `HF_HUB_OFFLINE=1`/`TRANSFORMERS_OFFLINE=1` and have no internet access, so
+    any Hub id not already pre-downloaded into the shared cache on a login node fails
+    here with a generic connection/404-shaped error. Re-raise with the actual fix.
+    """
+    if _looks_like_local_path(model_id) or not _is_hf_hub_offline():
+        return
+    raise OSError(
+        f"'{model_id}' is not in the local Hugging Face cache and this node is offline "
+        "(HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE=1). Pre-download it on a node with internet "
+        f"access first, e.g.:\n    huggingface-cli download {model_id}\n"
+        "then re-run on the compute node. See the 'Mirror / offline' section in README.md."
+    ) from exc
+
+
 def _load_causal_lm(
     model_id: str,
     base_model_id: str | None,
@@ -75,20 +97,32 @@ def _load_causal_lm(
     _check_local_path_exists(model_id, what="Model")
 
     if not _is_peft_adapter(model_id):
-        return AutoModelForCausalLM.from_pretrained(
-            model_id, cache_dir=cache_dir, torch_dtype=torch_dtype, device_map=device_map
-        )
+        try:
+            return AutoModelForCausalLM.from_pretrained(
+                model_id, cache_dir=cache_dir, torch_dtype=torch_dtype, device_map=device_map
+            )
+        except OSError as exc:
+            _reraise_if_offline_cache_miss(model_id, exc)
+            raise
 
     from peft import PeftConfig, PeftModel
 
-    adapter_config = PeftConfig.from_pretrained(model_id)
+    try:
+        adapter_config = PeftConfig.from_pretrained(model_id)
+    except OSError as exc:
+        _reraise_if_offline_cache_miss(model_id, exc)
+        raise
     resolved_base_id = base_model_id or adapter_config.base_model_name_or_path
     _check_local_path_exists(resolved_base_id, what="Base model")
     logger.info("Detected PEFT adapter at %s; loading base model %s", model_id, resolved_base_id)
 
-    base_model = AutoModelForCausalLM.from_pretrained(
-        resolved_base_id, cache_dir=cache_dir, torch_dtype=torch_dtype, device_map=device_map
-    )
+    try:
+        base_model = AutoModelForCausalLM.from_pretrained(
+            resolved_base_id, cache_dir=cache_dir, torch_dtype=torch_dtype, device_map=device_map
+        )
+    except OSError as exc:
+        _reraise_if_offline_cache_miss(resolved_base_id, exc)
+        raise
     model = PeftModel.from_pretrained(base_model, model_id)
     return model.merge_and_unload()
 
@@ -119,7 +153,11 @@ class HFChatGenerator:
         # escape hatch for checkpoints (e.g. hand-merged weights) that don't.
         resolved_tokenizer_id = tokenizer_id or model_id
         _check_local_path_exists(resolved_tokenizer_id, what="Tokenizer")
-        tokenizer = AutoTokenizer.from_pretrained(resolved_tokenizer_id, cache_dir=cache_dir)
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(resolved_tokenizer_id, cache_dir=cache_dir)
+        except OSError as exc:
+            _reraise_if_offline_cache_miss(resolved_tokenizer_id, exc)
+            raise
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
 

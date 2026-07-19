@@ -17,18 +17,39 @@ src/
 └── faitheval/
     ├── cli.py                 # argparse front-end; builds an EvalConfig, calls the evaluator
     ├── config.py              # TaskConfig (per-task YAML schema) + EvalConfig (per-run settings)
-    ├── data.py                # load_task_dataset() → HF `datasets` split, optional truncation
+    ├── data.py                # load_task_dataset() → local JSONL split, optional truncation
     ├── prompting.py           # build_messages(): context+question → chat messages
     ├── model.py               # model loading (Hub id / local path / LoRA adapter) + HFChatGenerator
     ├── metrics.py             # normalize_answer, phrase_match, answer_match
     └── evaluator.py           # run_evaluation(): the loop tying data → generate → score → I/O
+scripts/
+└── prepare_datasets.py        # run online once: download Hub splits → data/faitheval/*.jsonl
+data/
+└── faitheval/                 # pre-materialised JSONL splits (populated by the script above)
 configs/
 ├── unanswerable.yaml          # dataset name, task prompt, valid phrases, scoring rule
 ├── inconsistent.yaml
 └── counterfactual.yaml
 tests/
-└── test_metrics.py            # unit tests for the scoring rules
+├── test_metrics.py            # unit tests for the scoring rules
+└── test_data.py               # unit tests for the local JSONL loader
 ```
+
+## Dataset loading (`data.py`)
+
+`load_task_dataset` reads each split from a **local JSON Lines file** under
+`data/faitheval/<slug>/<split>.jsonl` (slug = the dataset id's last path
+component), builds a `datasets.Dataset` from the raw records, and optionally
+truncates it. Nothing touches the Hub or the HF arrow cache at eval time.
+
+This is a deliberate choice: the cluster pins `datasets<3`, which cannot read an
+arrow cache written by `datasets>=4` (list columns use the newer `List` feature
+type → `TypeError: must be called with a dataclass type or instance`). Plain
+JSONL has no such version-stamped metadata. The files are produced by
+`scripts/prepare_datasets.py` on an internet-connected machine (any `datasets`
+version) and copied over; `FAITHEVAL_DATA_DIR` overrides the location. The
+original Hub-loading path is preserved, commented, at the bottom of `data.py`
+for online, unpinned use.
 
 ## Data flow
 
