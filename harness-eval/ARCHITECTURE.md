@@ -4,6 +4,13 @@ A thin adapter between the `Eval_master` launcher and `lm_eval`. lm_eval owns th
 tasks, prompts, and scoring; this module does exactly three translations and
 nothing else.
 
+> **Attribution.** The evaluation itself is *not* ours: it is EleutherAI's
+> [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness)
+> running the TruthfulQA benchmark (Lin, Hilton & Evans, 2022) and its multilingual
+> extensions — Okapi (Lai et al., 2023) and TruthfulQA-multi (HiTZ; Calvo Figueras
+> et al., 2025). Cite those projects, not this wrapper — full references and BibTeX
+> are in [README.md](README.md#credits--citations).
+
 ## Why it exists: a second, independent number
 
 `TruthfulQA-reproduce` already scores TruthfulQA, using the **original authors'

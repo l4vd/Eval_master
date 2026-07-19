@@ -106,3 +106,64 @@ metrics deps and pull **no** TensorFlow (BLEURT is disabled upstream). Pre-downl
 the TruthfulQA datasets into the HF cache; the compute nodes have no internet.
 ⚠️ lm_eval 0.4.12 on transformers 4.41 is metadata-clean but unverified at runtime —
 fall back to `lm_eval==0.4.8` if it breaks. See ARCHITECTURE.md "HPC".
+
+## Credits & citations
+
+This module is only a thin adapter. All the evaluation machinery — task
+definitions, prompting, and metrics — belongs to **EleutherAI's
+lm-evaluation-harness** and to the authors of the TruthfulQA benchmarks it runs.
+When you report results, cite **those** projects, not this wrapper. This module
+targets lm_eval **v0.4.12**.
+
+**lm-evaluation-harness** — the framework (MIT-licensed), Gao et al.:
+
+```bibtex
+@misc{eval-harness,
+  author       = {Gao, Leo and Tow, Jonathan and Abbasi, Baber and Biderman, Stella and Black, Sid and DiPofi, Anthony and Foster, Charles and Golding, Laurence and Hsu, Jeffrey and Le Noac'h, Alain and Li, Haonan and McDonell, Kyle and Muennighoff, Niklas and Ociepa, Chris and Phang, Jason and Reynolds, Laria and Schoelkopf, Hailey and Skowron, Aviya and Sutawika, Lintang and Tang, Eric and Thite, Anish and Wang, Ben and Wang, Kevin and Zou, Andy},
+  title        = {The Language Model Evaluation Harness},
+  month        = jul,
+  year         = 2024,
+  publisher    = {Zenodo},
+  doi          = {10.5281/zenodo.12608602},
+  url          = {https://zenodo.org/records/12608602}
+}
+```
+
+**TruthfulQA** (`truthfulqa`) — the original benchmark, Lin, Hilton & Evans:
+
+```bibtex
+@inproceedings{lin-etal-2022-truthfulqa,
+  title     = {{T}ruthful{QA}: Measuring How Models Mimic Human Falsehoods},
+  author    = {Lin, Stephanie and Hilton, Jacob and Evans, Owain},
+  booktitle = {Proc. 60th Annual Meeting of the ACL (Volume 1: Long Papers)},
+  year      = {2022},
+  url       = {https://arxiv.org/abs/2109.07958}
+}
+```
+
+**Okapi** (`truthfulqa_multilingual`, 31 machine-translated languages) — Lai et al.:
+
+```bibtex
+@article{lai2023okapi,
+  title   = {Okapi: Instruction-tuned Large Language Models in Multiple Languages with Reinforcement Learning from Human Feedback},
+  author  = {Lai, Viet Dac and Nguyen, Chien Van and Ngo, Nghia Trung and Nguyen, Thuat and Dernoncourt, Franck and Rossi, Ryan A. and Nguyen, Thien Huu},
+  journal = {arXiv preprint arXiv:2307.16039},
+  year    = {2023}
+}
+```
+
+**TruthfulQA-multi** (`truthfulqa-multi`, 5 human-translated languages; Apache-2.0) —
+HiTZ Center, Calvo Figueras et al.:
+
+```bibtex
+@article{calvo2025truthknowsnolanguage,
+  title   = {Truth Knows No Language: Evaluating Truthfulness Beyond English},
+  author  = {Calvo Figueras, Blanca and Sagarzazu, Eneko and Etxaniz, Julen and Barnes, Jeremy and Gamallo, Pablo and De Dios Flores, Iria and Agerri, Rodrigo},
+  journal = {arXiv preprint arXiv:2502.09387},
+  year    = {2025}
+}
+```
+
+The default smoke-test model is [Qwen2.5](https://github.com/QwenLM/Qwen2.5)
+(Qwen Team, Alibaba). Consult each project's own repository for its license and
+terms of use.
