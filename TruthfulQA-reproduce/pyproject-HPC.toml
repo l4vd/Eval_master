@@ -30,6 +30,7 @@ dependencies = [
     "datasets>=2.18,<3.0",           # [cluster] datasets <3.0 (also keeps load_metric available)
     "pyarrow<16",                    # [cluster] keeps datasets <3.0 happy
     "peft>=0.10,<0.12",              # [cluster]
+    "setuptools>=68",                # [cluster] peft's boft tuner imports it at runtime via torch.utils.cpp_extension; uv venvs don't seed it
     "accelerate>=0.27,<0.29",        # [cluster]
     "huggingface-hub>=0.23,<0.24",   # [cluster]
     "numpy>=1.26,<2",                # [cluster] torch 2.2.x requires numpy 1.x
