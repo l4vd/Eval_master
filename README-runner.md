@@ -12,7 +12,7 @@ run_benchmarks.py       # Hydra launcher: composes config → subprocess per ben
 conf/
 ├── config.yaml         # composition root: model + the five benchmark groups + run list
 ├── model/              # shared model target (id/path/LoRA, dtype, device)
-│   ├── qwen_tiny.yaml  #   default: Qwen2.5-0.5B-Instruct (fast, CPU-friendly)
+│   ├── qwen_tiny.yaml  #   default: Qwen2.5-0.5B-Instruct; dtype/device auto-detect GPU
 │   └── _template.yaml  #   copy to point at your own checkpoint
 ├── faitheval/default.yaml
 ├── truthfulqa/default.yaml
@@ -116,9 +116,18 @@ Each benchmark is its own Hydra group — override any nested key:
 | `model.base_model_id` | `--base-model-id` (etc.) | base for a LoRA adapter |
 | `model.tokenizer_id` | `--tokenizer-id` (etc.) | if not saved with the weights |
 | `model.cache_dir` | `--cache-dir` (etc.) | HF cache |
-| `model.dtype` | `--dtype` | `bfloat16` \| `float16` \| `float32` |
+| `model.dtype` | `--dtype` | `bfloat16` \| `float16` \| `float32`; defaults to `${auto_dtype:}` |
 | `model.device_map` | `--device-map` | FaithEval / HaluEval / RAGTruth |
-| `model.device_index` | `--device` | TruthfulQA / harness (`-1` = CPU, `0` = cuda:0) |
+| `model.device_index` | `--device` | TruthfulQA / harness (`-1` = CPU, `0` = cuda:0); defaults to `${auto_device_index:}` |
+
+`model.dtype` and `model.device_index` default to `${auto_dtype:}` / `${auto_device_index:}` —
+Hydra resolvers (defined in `run_benchmarks.py`) that shell out to `nvidia-smi` at
+startup: a visible GPU gets `device_index=0` and bf16 (Ampere+, compute capability
+>= 8.0) or fp16 (older GPUs); no GPU gets `device_index=-1` and fp32. `harness.batch_size`
+similarly defaults to `${auto_batch_size:}` — `"auto"` (lm_eval's OOM-probing batch-size
+search) on a GPU, a fixed `8` on CPU (the OOM probing is CUDA-specific and unreliable for
+detecting CPU memory pressure). Override any of them explicitly, e.g.
+`model.dtype=float32 model.device_index=-1 harness.batch_size=4`, to pin a value.
 
 Point at your own checkpoint by editing `conf/model/_template.yaml` (then
 `model=_template`) or just overriding `model.id=...` on the CLI.
@@ -199,7 +208,10 @@ but `./setup_envs.sh --hpc` also swaps *its own* `pyproject.toml` for
 `pyproject-HPC.toml` (pinned to the cluster's Python 3.12), same as every
 benchmark. Install each benchmark from its `pyproject-HPC.toml` (see each
 folder's README "Install (HPC)"), pre-download models/detector into the HF
-cache, and run `./run_all.sh` inside your SLURM job with
-`model.dtype=float32`/`float16` and offline env vars set as usual. Because the
+cache, and run `./run_all.sh` inside your SLURM job with a GPU allocated
+(`--gres=gpu:1` or equivalent) and offline env vars set as usual — `model.dtype`,
+`model.device_index`, and `harness.batch_size` auto-detect the allocated GPU
+(see "Model / device" above), so no override is needed on a normal GPU node.
+Because the
 rewritten RAGTruth no longer needs a TGI server, the whole suite runs on a
 stock GPU node.

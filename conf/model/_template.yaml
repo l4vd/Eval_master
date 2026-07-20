@@ -6,6 +6,6 @@ model:
   base_model_id: null               # e.g. "meta-llama/Meta-Llama-3.1-8B-Instruct" for a LoRA
   tokenizer_id: null
   cache_dir: null
-  dtype: "bfloat16"
+  dtype: "${auto_dtype:}"           # bf16 (Ampere+) | fp16 (older GPU) | fp32 (CPU); or pin explicitly
   device_map: "auto"
-  device_index: 0                   # cuda:0 for TruthfulQA
+  device_index: "${auto_device_index:}"  # cuda:0 if a GPU is visible, else CPU; or pin explicitly

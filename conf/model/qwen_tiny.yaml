@@ -4,12 +4,16 @@
 # id, a local full-model directory, or a PEFT/LoRA adapter checkpoint (e.g. a
 # `final_checkpoint` from SP-DPO-Base — auto-detected and merged onto its base).
 #
-# This tiny instruct model is a fast, CPU-friendly default for smoke tests.
+# This tiny instruct model is a fast default for smoke tests, on a laptop or a
+# GPU node alike: dtype and device_index auto-detect hardware via `nvidia-smi`
+# (see the `auto_*` resolvers in run_benchmarks.py) and fall back to CPU-safe
+# settings when no GPU is visible. Override any of them explicitly, e.g.
+# `model.device_index=-1` to force CPU.
 model:
   id: "Qwen/Qwen2.5-0.5B-Instruct"
   base_model_id: null      # base to merge a LoRA adapter onto (if not in its config)
   tokenizer_id: null       # tokenizer, if not saved alongside the weights
   cache_dir: null          # Hugging Face cache directory
-  dtype: "bfloat16"        # bfloat16 | float16 | float32 (use float32 on CPU)
-  device_map: "auto"       # for FaithEval / HaluEval / RAGTruth (--device-map)
-  device_index: -1         # for TruthfulQA / harness (--device; -1 = CPU, 0 = cuda:0)
+  dtype: "${auto_dtype:}"          # bf16 (Ampere+) | fp16 (older GPU) | fp32 (CPU)
+  device_map: "auto"               # for FaithEval / HaluEval / RAGTruth (--device-map)
+  device_index: "${auto_device_index:}"  # for TruthfulQA / harness (--device; -1=CPU, 0=cuda:0)

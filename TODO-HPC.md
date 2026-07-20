@@ -177,9 +177,11 @@ catching a missed download in step 5.
 - [ ] Copy `conf/model/_template.yaml` to `conf/model/<name>.yaml` and fill
       in `id` (and `base_model_id`/`tokenizer_id` for a LoRA adapter), or
       just override on the CLI: `./run_all.sh model.id=/path/to/checkpoint`.
-- [ ] Decide `dtype` per the actual GPU: `bf16` needs Ampere+ (A100); on
-      V100 nodes use `model.dtype=float16` (same tradeoff `SP-DPO-Base`
-      documents for training).
+- [x] `dtype` and `device_index` now auto-detect the node's hardware (`${auto_dtype:}` /
+      `${auto_device_index:}` in `conf/model/*.yaml`, resolved via `nvidia-smi` in
+      `run_benchmarks.py`): bf16 on Ampere+ (A100), fp16 on older GPUs (V100 — same
+      tradeoff `SP-DPO-Base` documents for training), fp32 with no GPU visible. Override
+      explicitly if you want to pin one, e.g. `model.dtype=float16`.
 - [ ] Fix — and record — the protocol choices that materially move scores
       across every model you'll compare: `truthfulqa.prompt_style`
       (`chat` vs `completion`) and `harness.apply_chat_template`
@@ -205,7 +207,7 @@ export HF_HOME=/gpfs/project/$USER/hf_cache
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1
 
 cd /gpfs/project/$USER/Eval_master
-./run_all.sh model.id=/path/to/checkpoint model.dtype=bfloat16
+./run_all.sh model.id=/path/to/checkpoint
 ```
 
 - [ ] Check whether all five benchmarks comfortably share one GPU allocation

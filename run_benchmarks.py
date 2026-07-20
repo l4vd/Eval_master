@@ -14,6 +14,7 @@ See conf/config.yaml for all options, or `README-runner.md`.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -32,6 +33,70 @@ FOLDERS = {
     "ragtruth": ROOT / "RAGTruth-reproduce",
     "harness": ROOT / "harness-eval",
 }
+
+
+# --- Hardware-aware config resolvers ----------------------------------------
+#
+# The launcher's own venv deliberately carries no torch (each benchmark brings
+# its own, in its own env — see pyproject.toml), so GPU detection here shells
+# out to `nvidia-smi` instead of importing torch. These back the `${auto_*:}`
+# interpolations in conf/model/*.yaml and conf/harness/default.yaml, so a plain
+# `./run_all.sh` picks sensible settings on both a laptop and a GPU node without
+# any override.
+
+
+def _gpu_available() -> bool:
+    """Whether a CUDA GPU is visible to `nvidia-smi`."""
+    if shutil.which("nvidia-smi") is None:
+        return False
+    try:
+        return subprocess.run(["nvidia-smi", "-L"], capture_output=True, timeout=10).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _gpu_min_compute_capability() -> float | None:
+    """Lowest compute capability across visible GPUs, or None if it can't be read."""
+    try:
+        proc = subprocess.run(
+            ["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        caps = [float(line) for line in proc.stdout.splitlines() if line.strip()]
+        return min(caps) if caps else None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+
+
+def _auto_device_index() -> int:
+    """`${auto_device_index:}` -> 0 (cuda:0) if a GPU is visible, else -1 (CPU)."""
+    return 0 if _gpu_available() else -1
+
+
+def _auto_dtype() -> str:
+    """`${auto_dtype:}` -> bf16 needs Ampere+ (compute capability >= 8.0); older
+    GPUs fall back to fp16, and CPU falls back to fp32 (bf16 on a generic CPU is
+    software-emulated and often slower than fp32, not a real speed win)."""
+    if not _gpu_available():
+        return "float32"
+    cap = _gpu_min_compute_capability()
+    return "bfloat16" if cap is not None and cap >= 8.0 else "float16"
+
+
+def _auto_batch_size() -> str:
+    """`${auto_batch_size:}` -> lm_eval's OOM-probing batch-size search
+    (`batch_size="auto"`) is written and tested against CUDA OOM errors; it
+    doesn't reliably detect CPU memory pressure, so only hand it "auto" when a
+    GPU is present. CPU runs get a fixed, modest size instead of the unconditional
+    batch_size=1 default."""
+    return "auto" if _gpu_available() else "8"
+
+
+OmegaConf.register_new_resolver("auto_device_index", _auto_device_index)
+OmegaConf.register_new_resolver("auto_dtype", _auto_dtype)
+OmegaConf.register_new_resolver("auto_batch_size", _auto_batch_size)
 
 
 def _opt(flag: str, value) -> list[str]:
