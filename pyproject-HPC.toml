@@ -12,18 +12,22 @@ readme = "README-runner.md"
 requires-python = ">=3.12,<3.13"
 
 # --- Versioning policy for this file -------------------------------------------
-# hydra-core / omegaconf are the only deps the launcher itself needs — pinned to
-# the same ranges already known to resolve on the HPC PyPI mirror via the
-# `topollm` / `SP-DPO-Base` environment (marked "[cluster]"). Each benchmark
-# brings its own stack in its own virtualenv (see setup_envs.sh --hpc).
+# hydra-core / omegaconf / numpy are pinned to the same ranges already known to
+# resolve on the HPC PyPI mirror via the `topollm` / `SP-DPO-Base` environment
+# (marked "[cluster]"). numpy backs the read-only `analysis` aggregation package;
+# scipy/matplotlib are lazy extras. Each benchmark brings its own stack in its
+# own virtualenv (see setup_envs.sh --hpc).
 # -------------------------------------------------------------------------------
 dependencies = [
     "hydra-core>=1.3.0",   # [cluster]
     "omegaconf>=2.3.0",    # [cluster]
+    "numpy>=1.24",         # [cluster]
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+stats = ["scipy>=1.10"]        # Wilcoxon signed-rank in analysis.stats (lazy import)
+plot = ["matplotlib>=3.7"]     # figures in analysis.plot (lazy import)
 
 [tool.uv]
 index-strategy = "unsafe-best-match"
@@ -40,7 +44,11 @@ hydra-hpc-launcher = { git = "https://github.com/carelvniekerk/Hydra-HPC-Launche
 # url = "<CLUSTER_PYPI_MIRROR_URL>"
 # default = true
 
-# run_benchmarks.py is a script run in place rather than an importable package,
-# so no package is declared; `uv sync` just installs the dependencies above.
-[tool.setuptools]
-py-modules = []
+# run_benchmarks.py is a script run in place; the importable code is the additive
+# read-only `analysis` package (aggregation / comparison / plotting over results).
+[tool.setuptools.packages.find]
+include = ["analysis*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["analysis/tests"]

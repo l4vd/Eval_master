@@ -138,7 +138,7 @@ class HFChatGenerator:
         cache_dir: str | None = None,
         device_map: str = "auto",
         dtype: str = "bfloat16",
-        max_new_tokens: int = 16,
+        max_new_tokens: int = 16,  #NOTE: might need to change this for reasoning models.
     ) -> None:
         if dtype not in _DTYPE_BY_NAME:
             raise ValueError(f"Unsupported dtype {dtype!r}; choose from {sorted(_DTYPE_BY_NAME)}")
