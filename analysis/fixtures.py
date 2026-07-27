@@ -115,7 +115,7 @@ def write_harness(
             "task": None, "kind": "task", "alias": None, "metric": "acc",
             "filter": "none", "value": None, "stderr": None,
             "higher_is_better": True, "num_fewshot": 0, "version": 2.0, "n_samples": 100,
-        }
+        } #NOTE: why is harder is better hardcoded???
         row.update(r)
         # harness writes numbers via default=str -> value/stderr land as strings.
         if row["value"] is not None:

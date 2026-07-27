@@ -61,6 +61,7 @@ def signed_value(value: float, higher_is_better: bool) -> float:
 
     Used so that a delta ``signed(a) - signed(b)`` is positive exactly when ``a``
     is the better arm, regardless of the metric's native direction.
+    NOTE: this does not considere differences in the scale.
     """
     return value if higher_is_better else -value
 
