@@ -5,6 +5,10 @@ against a single model, configured with [Hydra](https://hydra.cc/). The benchmar
 stay separate repos; this launcher just composes one shared `model` config plus a
 per-benchmark config group and translates them into each benchmark's own CLI.
 
+> **See also:** [`conf/README.md`](conf/README.md) — a full per-parameter reference for
+> every config key. [`analysis/README.md`](analysis/README.md) — aggregating, comparing,
+> and plotting the run dirs this launcher produces.
+
 ```
 run_all.sh              # shell wrapper (forwards Hydra overrides)
 setup_envs.sh           # one-time: creates a virtualenv per benchmark

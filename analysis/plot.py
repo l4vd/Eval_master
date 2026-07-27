@@ -398,7 +398,7 @@ def _save(fig, path: Path, *, tight: bool = True) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     if tight:
         fig.tight_layout()
-    fig.savefig(path, dpi=150)
+    fig.savefig(path, dpi=300) 
     # also emit a vector PDF for the thesis appendix
     fig.savefig(path.with_suffix(".pdf"))
     import matplotlib.pyplot as plt
