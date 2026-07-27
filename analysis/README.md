@@ -10,8 +10,6 @@ per seed, treated as an ensemble. A one-run arm with no recoverable seed is a **
 point** (e.g. an untrained base evaluated once) and gets the one-sample regime instead of
 a paired test.
 
-## Pipeline at a glance
-
 ```
 run dirs ──discover──▶ (run_dir, seed) pairs ──parse──▶ MetricRecord rows
                                                               │
@@ -22,19 +20,23 @@ run dirs ──discover──▶ (run_dir, seed) pairs ──parse──▶ Metr
                                      mean/std/CI          paired | one-sample    figures
 ```
 
-| File | Role |
-| --- | --- |
-| [`model.py`](model.py) | `MetricRecord` (one scalar for arm/seed/benchmark/task/metric) + `RecordSet` wrapper. The canonical intermediate; everything downstream consumes it. |
-| [`discover.py`](discover.py) | Resolve an arm spec (dir / group dir / glob) to `(run_dir, seed)` pairs; infer seeds. |
-| [`parse.py`](parse.py) | Per-benchmark summary readers → `MetricRecord` rows. Holds the metric-direction and primary-metric tables. |
-| [`spec.py`](spec.py) | Arm declaration, `AnalysisConfig`, `NAME=SPEC` parsing, primary-metric override. |
-| [`aggregate.py`](aggregate.py) | Across-seed mean / std / bootstrap-CI per (benchmark, task, metric). |
-| [`compare.py`](compare.py) | Arm-vs-reference comparison; auto-selects paired vs one-sample. |
-| [`stats.py`](stats.py) | Vendored bootstrap CI, one-sample summary, seed-aligned Wilcoxon. |
-| [`plot.py`](plot.py) | Five matplotlib figure types; also a standalone re-plot entry point. |
-| [`report.py`](report.py) | JSON / JSONL / LaTeX writers. |
-| [`fixtures.py`](fixtures.py) | Synthetic run-dir generators (used by the offline tests). |
-| [`cli.py`](cli.py) | `python -m analysis.cli` — ties it all together. |
+## Contents
+
+- [Install](#install)
+- [Three scripts, one job each](#three-scripts-one-job-each)
+- [Cheat sheet — every flag at a glance](#cheat-sheet--every-flag-at-a-glance)
+- [Recipes](#recipes)
+- [Declaring arms](#declaring-arms----arm-namespec)
+- [Reference arm & comparison regime](#reference-arm--comparison-regime)
+- [Benchmark selection](#benchmark-selection)
+- [Overriding the primary metric](#overriding-the-primary-metric----primary-map)
+- [Generating runs first (`--run-evals`)](#generating-runs-first----run-evals)
+- [Outputs](#outputs)
+- [Key concepts](#key-concepts)
+- [Testing](#testing)
+- [Source map](#source-map)
+
+---
 
 ## Install
 
@@ -49,24 +51,140 @@ uv sync --extra stats --extra plot     # or: pip install -e '.[stats,plot]'
 Without `stats`, the Wilcoxon test degrades gracefully (returns NaN stat/p, keeps the
 bootstrap CI). Without `plot`, use `--no-plot`.
 
-## Entry points
+---
 
-Three thin shell wrappers resolve `Eval_master/.venv` (honouring `$VENV_ROOT`) and call
-the module. All flags are forwarded, so you can call the module directly instead.
+## First: do the eval dirs exist yet?
 
-| Wrapper | Equivalent | Does |
+**The analysis scripts below never run a model — they only read eval run dirs that
+already contain the per-benchmark subfolders (`faitheval/`, `harness/`, ...).** Pointing
+`--arm dpo=.../seed_*` at a *training* ensemble (a `..._ensemble/seed_<SEED>/` group dir
+of `final_checkpoint`s) therefore finds **zero** records — the ensemble looks "unrecognised".
+That directory holds checkpoints, not benchmark results; something has to evaluate them first.
+
+[`run_eval_checkpoints.sh`](run_eval_checkpoints.sh) is that step. It walks a training
+ensemble, runs [`run_benchmarks.py`](../run_benchmarks.py) on each seed's checkpoint, and
+writes the results to a **seed-preserving** `<out>/seed_<SEED>/` layout — exactly what the
+analysis scripts expect, paired by seed value:
+
+```bash
+# evaluate every seed checkpoint, then compare the ensemble against base in one go
+./run_eval_checkpoints.sh \
+    --checkpoints '/gpfs/.../08-48-52_sft_ensemble/seed_*' \
+    --out outputs/eval/sft_ensemble \
+    --analyze --name sft --arm base=/gpfs/.../20-38-30 --reference base
+
+# or just produce the eval dirs (no --analyze) and hand them to run_analysis.sh yourself
+./run_eval_checkpoints.sh --checkpoints '.../seed_*' --out outputs/eval/sft_ensemble
+./run_analysis.sh --arm sft='outputs/eval/sft_ensemble/seed_*' \
+    --arm base=/gpfs/.../20-38-30 --reference base --out outputs/analysis
+```
+
+| Flag | Meaning |
+| --- | --- |
+| `--checkpoints SPEC` | Training ensemble: a `..._ensemble/` group dir, a `.../seed_*` glob, or one seed dir. |
+| `--out DIR` | Root for the produced eval dirs (`<DIR>/seed_<SEED>/` each). |
+| `--checkpoint-subdir NAME` | Model subdir inside each seed (default `final_checkpoint`; falls back to the seed dir itself). |
+| `--benchmarks a,b` | Subset of the five to run (default: all). |
+| `--num-samples N` | Per-benchmark sample cap forwarded to the launcher. |
+| `--dry-run` | Print the launcher commands without loading any model. |
+| `--stop-on-error` | Abort on the first failed seed (default: keep going; a partial ensemble still aggregates). |
+| `--analyze` | Chain into `analysis.cli` on the produced ensemble (`--name`, `--arm`, `--reference`, `--analysis-out`, `--no-plot` apply). |
+| `--launcher-extra ...` | Extra Hydra overrides forwarded verbatim to the launcher (**must come last**). |
+
+> Seeds are preserved by **value** (`seed_42`, not `seed_0`), matching the training-side
+> naming, so the downstream paired comparison lines up by seed identity. A
+> `run_metadata.json` carrying the seed + source checkpoint is stamped into each output dir.
+
+Already have eval dirs (or used the training-side pipeline that writes them)? Skip straight
+to the three analysis scripts.
+
+## Three scripts, one job each
+
+All three are thin shell wrappers that resolve `Eval_master/.venv` (honouring
+`$VENV_ROOT`, or `$PYTHON` directly) and forward every flag to a Python module — so you
+can always call the module directly instead. Pick the one that matches how much of the
+pipeline you want to run:
+
+| Script | Runs | Skip this if... |
 | --- | --- | --- |
-| [`run_analysis.sh`](run_analysis.sh) | `python -m analysis.cli` | Full pipeline: aggregate → compare → plot. |
-| [`run_eval_ensemble.sh`](run_eval_ensemble.sh) | `python -m analysis.cli --no-plot` | Aggregate (+ compare) only; no figures. |
-| [`run_plots.sh`](run_plots.sh) | `python -m analysis.plot` | Re-plot from persisted `records.jsonl` / `comparisons.json`. |
+| **[`run_analysis.sh`](run_analysis.sh)** | aggregate → compare → plot (everything) | you just want numbers, not figures — use `run_eval_ensemble.sh` |
+| **[`run_eval_ensemble.sh`](run_eval_ensemble.sh)** | aggregate (+ compare); **no figures** | you already have `records.jsonl` and only want to replot — use `run_plots.sh` |
+| **[`run_plots.sh`](run_plots.sh)** | replot from persisted `records.jsonl` / `comparisons.json`; **no eval, no aggregation** | you don't have persisted artifacts yet |
+
+```
+run_eval_checkpoints.sh = python -m analysis.eval_checkpoints   # checkpoints -> eval dirs
+run_analysis.sh         = python -m analysis.cli
+run_eval_ensemble.sh    = python -m analysis.cli --no-plot
+run_plots.sh            = python -m analysis.plot
+```
 
 ---
 
-## `analysis.cli` parameters
+## Cheat sheet — every flag at a glance
 
-Run `python -m analysis.cli --arm NAME=SPEC ... [options]`.
+### `run_analysis.sh` / `run_eval_ensemble.sh` (→ `analysis.cli`)
 
-### Declaring arms — `--arm NAME=SPEC` (repeatable, required)
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--arm NAME=SPEC` | — (required, repeatable) | Declare one arm. See [Declaring arms](#declaring-arms----arm-namespec). |
+| `--out DIR` | `outputs/analysis` | Where results are written. |
+| `--reference NAME` | auto | Arm every other arm is compared against. See [Reference arm](#reference-arm--comparison-regime). |
+| `--benchmarks a,b,c` | all present | Include-list of benchmark folders. |
+| `--exclude a,b` | none | Exclude-list, applied after include. |
+| `--no-compare` | off | Aggregate only; skip cross-arm comparison. |
+| `--no-plot` | off | Skip figures (no matplotlib needed). *(`run_eval_ensemble.sh` always sets this.)* |
+| `--allow-seed-mismatch` | off | Paired mode intersects shared seeds instead of failing loudly on a mismatch. |
+| `--primary-map FILE` | built-in | YAML/JSON overriding the primary-metric-per-benchmark map. |
+| `--rng-seed N` | `0` | Bootstrap RNG seed (reproducible CIs). |
+| `--run-evals` | off | Drive the Hydra launcher first to produce run dirs. Requires `--models`. |
+| `--models id1,id2` | — | Comma-separated model ids for `--run-evals`. |
+| `--eval-sweep-dir DIR` | `outputs/analysis_sweep` | Hydra `sweep.dir` for `--run-evals`. |
+| `--eval-extra ...` | none | Extra Hydra overrides, forwarded verbatim. **Must be last** (`nargs=REMAINDER`). |
+| `--dry-run` | off | With `--run-evals`, print the launcher command instead of running it. |
+
+### `run_plots.sh` (→ `analysis.plot`)
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--from DIR` | — (required) | Analysis dir containing `records.jsonl` (+ optional `comparisons.json`). |
+| `--out DIR` | `<from>/figures` | Figure output dir. |
+| `--reference NAME` | none | Reference label for delta plots. |
+| `--benchmarks a,b` | all | Include-list. |
+| `--exclude a,b` | none | Exclude-list. |
+
+---
+
+## Recipes
+
+```bash
+# 1) One ensemble, aggregate + plot, no comparison:
+./run_analysis.sh --arm dpo='outputs/.../*_dpo_ensemble/seed_*' --no-compare
+
+# 2) base (fixed point) vs SFT vs DPO ensembles, full compare + figures:
+./run_analysis.sh \
+    --arm base=outputs/.../base_run \
+    --arm sft='outputs/.../*_sft_ensemble/seed_*' \
+    --arm dpo='outputs/.../*_dpo_ensemble/seed_*' \
+    --reference base --out outputs/analysis
+
+# 3) Aggregate only (no figures), restrict to two benchmarks:
+./run_eval_ensemble.sh --arm dpo='outputs/.../seed_*' --no-compare \
+    --benchmarks faitheval,harness
+
+# 4) Re-plot persisted artifacts later, excluding one benchmark:
+./run_plots.sh --from outputs/analysis --exclude ragtruth
+
+# 5) Produce evals for a model list first (Hydra --multirun), then analyse + plot:
+./run_analysis.sh --run-evals --models ckptA,ckptB --reference model0 \
+    --eval-extra run='[faitheval,harness]' num_samples=50
+
+# 6) Override which metric counts as "primary" for a benchmark:
+./run_analysis.sh --arm base=... --arm dpo=... --primary-map my_primary.yaml
+```
+
+---
+
+## Declaring arms — `--arm NAME=SPEC`
 
 `NAME` is the arm label (used in tables, plots, and as a `--reference` target). `SPEC`
 resolves to run dirs via [`discover.py`](discover.py) and accepts:
@@ -93,7 +211,7 @@ unrecoverable seed stays `None`, and paired mode refuses to fabricate a seed ide
 --arm base=outputs/.../base_run!fixed                       # force fixed point
 ```
 
-### Reference & regime — `--reference`
+## Reference arm & comparison regime
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
@@ -115,7 +233,7 @@ The comparison **regime is chosen automatically** per arm pair (see
 | --- | --- | --- |
 | `--allow-seed-mismatch` | Paired mode **fails loudly** (`SeedMismatchError`) if the two arms don't share an identical seed set — re-run the missing seeds. | Silently intersect and test over the shared seeds (still aligned by value). |
 
-### Benchmark selection
+## Benchmark selection
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
@@ -124,16 +242,7 @@ The comparison **regime is chosen automatically** per arm pair (see
 
 Benchmark names: `faitheval`, `truthfulqa`, `halueval`, `ragtruth`, `harness`.
 
-### Toggles
-
-| Flag | Effect |
-| --- | --- |
-| `--no-compare` | Aggregate each arm only; skip cross-arm comparison. The single-ensemble path (also implied when fewer than 2 arms are given). |
-| `--no-plot` | Skip figures (no matplotlib needed). |
-| `--out DIR` | Analysis output dir (default `outputs/analysis`). |
-| `--rng-seed N` | Bootstrap RNG seed (default `0`) — makes CIs reproducible. |
-
-### Overriding the primary metric — `--primary-map`
+## Overriding the primary metric — `--primary-map`
 
 Each benchmark has a **primary** ("headline") metric that drives the default comparisons
 and the main plots. The built-in defaults (from [`parse.py`](parse.py)):
@@ -156,7 +265,7 @@ harness:   ["truthfulqa_mc2:acc"]             # only mc2 acc
 truthfulqa: ["MC2"]
 ```
 
-### Producing runs first — `--run-evals`
+## Generating runs first — `--run-evals`
 
 Drive the Hydra launcher's `--multirun` to *generate* run dirs before analysing them —
 no separate launch step.
@@ -180,23 +289,9 @@ python -m analysis.cli --run-evals --models ckptA,ckptB --reference model0 \
 
 ---
 
-## `analysis.plot` parameters (standalone re-plot)
+## Outputs
 
-`python -m analysis.plot` (or [`run_plots.sh`](run_plots.sh)) reloads persisted
-artifacts and re-renders figures with **no eval attached** — restyle long after the runs
-finished.
-
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--from DIR` (required) | — | Analysis dir containing `records.jsonl` (+ optional `comparisons.json`). |
-| `--out DIR` | `<from>/figures` | Figure output dir. |
-| `--reference NAME` | none | Reference label for delta plots. |
-| `--benchmarks a,b` | all | Include list (drops others from every figure). |
-| `--exclude a,b` | none | Exclude list. |
-
----
-
-## Outputs (under `--out`, default `outputs/analysis/`)
+Written under `--out` (default `outputs/analysis/`):
 
 | File | Written by | Contents |
 | --- | --- | --- |
@@ -248,23 +343,19 @@ dirs (each benchmark's real on-disk shape) that the suite parses:
 uv run --extra dev --extra stats pytest      # from Eval_master/
 ```
 
-## Worked examples
+## Source map
 
-```bash
-# 1) One ensemble, aggregate + plot, no comparison:
-./run_analysis.sh --arm dpo='outputs/.../*_dpo_ensemble/seed_*' --no-compare
-
-# 2) base (fixed point) vs SFT vs DPO ensembles, full compare + figures:
-./run_analysis.sh \
-    --arm base=outputs/.../base_run \
-    --arm sft='outputs/.../*_sft_ensemble/seed_*' \
-    --arm dpo='outputs/.../*_dpo_ensemble/seed_*' \
-    --reference base --out outputs/analysis
-
-# 3) Aggregate only (no figures), restrict to two benchmarks:
-./run_eval_ensemble.sh --arm dpo='outputs/.../seed_*' --no-compare \
-    --benchmarks faitheval,harness
-
-# 4) Re-plot persisted artifacts later, excluding one benchmark:
-./run_plots.sh --from outputs/analysis --exclude ragtruth
-```
+| File | Role |
+| --- | --- |
+| [`model.py`](model.py) | `MetricRecord` (one scalar for arm/seed/benchmark/task/metric) + `RecordSet` wrapper. The canonical intermediate; everything downstream consumes it. |
+| [`discover.py`](discover.py) | Resolve an arm spec (dir / group dir / glob) to `(run_dir, seed)` pairs; infer seeds. |
+| [`eval_checkpoints.py`](eval_checkpoints.py) | Upstream producer: evaluate a training `..._ensemble/seed_*` of checkpoints through the launcher into a seed-preserving eval layout the rest of the package consumes. |
+| [`parse.py`](parse.py) | Per-benchmark summary readers → `MetricRecord` rows. Holds the metric-direction and primary-metric tables. |
+| [`spec.py`](spec.py) | Arm declaration, `AnalysisConfig`, `NAME=SPEC` parsing, primary-metric override. |
+| [`aggregate.py`](aggregate.py) | Across-seed mean / std / bootstrap-CI per (benchmark, task, metric). |
+| [`compare.py`](compare.py) | Arm-vs-reference comparison; auto-selects paired vs one-sample. |
+| [`stats.py`](stats.py) | Vendored bootstrap CI, one-sample summary, seed-aligned Wilcoxon. |
+| [`plot.py`](plot.py) | Five matplotlib figure types; also a standalone re-plot entry point. |
+| [`report.py`](report.py) | JSON / JSONL / LaTeX writers. |
+| [`fixtures.py`](fixtures.py) | Synthetic run-dir generators (used by the offline tests). |
+| [`cli.py`](cli.py) | `python -m analysis.cli` — ties it all together. |
