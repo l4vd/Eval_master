@@ -12,22 +12,25 @@ readme = "README-runner.md"
 requires-python = ">=3.12,<3.13"
 
 # --- Versioning policy for this file -------------------------------------------
-# hydra-core / omegaconf / numpy are pinned to the same ranges already known to
-# resolve on the HPC PyPI mirror via the `topollm` / `SP-DPO-Base` environment
-# (marked "[cluster]"). numpy backs the read-only `analysis` aggregation package;
-# scipy/matplotlib are lazy extras. Each benchmark brings its own stack in its
-# own virtualenv (see setup_envs.sh --hpc).
+# hydra-core / omegaconf are the only deps the launcher itself needs — pinned to
+# the same ranges already known to resolve on the HPC PyPI mirror via the
+# `topollm` / `SP-DPO-Base` environment (marked "[cluster]"). Each benchmark
+# brings its own stack in its own virtualenv (see setup_envs.sh --hpc).
 # -------------------------------------------------------------------------------
 dependencies = [
     "hydra-core>=1.3.0",   # [cluster]
     "omegaconf>=2.3.0",    # [cluster]
-    "numpy>=1.24",         # [cluster]
+    "numpy>=1.26,<2",         # [cluster]
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
-stats = ["scipy>=1.10"]        # Wilcoxon signed-rank in analysis.stats (lazy import)
-plot = ["matplotlib>=3.7"]     # figures in analysis.plot (lazy import)
+stats = ["scipy>=1.11,<1.14"]        # Wilcoxon signed-rank in analysis.stats (lazy import)
+plot = [
+    "matplotlib>=3.8,<3.10",
+    "contourpy>=1.2,<1.3",           # [added] matplotlib dep — pin to 1.2.x which ships manylinux wheels; 1.3.x builds from source and fails with nvc++ (CUDA 11.7 compiler)
+    "pillow>=10.0,<12; sys_platform == 'linux'",  # [added]
+]   # figures in analysis.plot (lazy import)
 
 [tool.uv]
 index-strategy = "unsafe-best-match"
