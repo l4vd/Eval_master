@@ -23,6 +23,7 @@ run dirs ──discover──▶ (run_dir, seed) pairs ──parse──▶ Metr
 ## Contents
 
 - [Install](#install)
+- [First: do the eval dirs exist yet?](#first-do-the-eval-dirs-exist-yet)
 - [Three scripts, one job each](#three-scripts-one-job-each)
 - [Cheat sheet — every flag at a glance](#cheat-sheet--every-flag-at-a-glance)
 - [Recipes](#recipes)
@@ -121,6 +122,26 @@ run_plots.sh            = python -m analysis.plot
 ---
 
 ## Cheat sheet — every flag at a glance
+
+### `run_eval_checkpoints.sh` (→ `analysis.eval_checkpoints`)
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--checkpoints SPEC` | — (required) | Training ensemble: a `..._ensemble/` group dir, a `.../seed_*` glob, or one seed dir. |
+| `--out DIR` | — (required) | Root for the produced eval dirs (`<DIR>/seed_<SEED>/` each). |
+| `--checkpoint-subdir NAME` | `final_checkpoint` | Model subdir inside each seed dir; falls back to the seed dir itself if absent. |
+| `--benchmarks a,b` | all five | Subset to run per checkpoint. |
+| `--num-samples N` | full dataset | Per-benchmark sample cap forwarded to the launcher. |
+| `--python PATH` | this interpreter | Interpreter to run the launcher with. |
+| `--dry-run` | off | Print the planned launcher commands without loading any model. |
+| `--stop-on-error` | off | Abort on the first failed seed (default: keep going; a partial ensemble still aggregates). |
+| `--launcher-extra ...` | none | Extra Hydra overrides forwarded to the launcher. **Must be last** (`nargs=REMAINDER`). |
+| `--analyze` | off | After evaluating, chain into `analysis.cli` on the produced ensemble. |
+| `--name NAME` | `dpo` | Arm name for the produced ensemble when `--analyze`. |
+| `--arm NAME=SPEC` | none | Extra arm(s) for `--analyze` (e.g. `base=<eval_dir>`). Repeatable. |
+| `--reference NAME` | auto | Reference arm for `--analyze`. |
+| `--analysis-out DIR` | `<out>/analysis` | Output dir for `--analyze`. |
+| `--no-plot` | off | Skip figures in `--analyze`. |
 
 ### `run_analysis.sh` / `run_eval_ensemble.sh` (→ `analysis.cli`)
 
