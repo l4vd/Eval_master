@@ -113,6 +113,36 @@ def test_run_produces_analysis_ready_ensemble(tmp_path, monkeypatch):
     assert pairs == {"seed_42": 42, "seed_7": 7, "seed_99": 99}
 
 
+def test_analyze_forwards_benchmarks_and_other_flags(tmp_path, monkeypatch):
+    """--analyze must forward --benchmarks (and friends) to analysis.cli, not just the
+    eval step -- otherwise an --arm scoped to more benchmarks than were evaluated here
+    silently leaks extra benchmarks into the analysis (see eval_checkpoints._run_analysis).
+    """
+    _fake_launcher(monkeypatch)
+    group = _write_ckpt_ensemble(tmp_path / "grp", [42])
+    out = tmp_path / "eval"
+
+    captured_argv = {}
+
+    def fake_analysis_main(argv):
+        captured_argv["argv"] = argv
+        return 0
+
+    monkeypatch.setattr("analysis.cli.main", fake_analysis_main)
+
+    rc = eval_checkpoints.main([
+        "--checkpoints", str(group), "--out", str(out),
+        "--benchmarks", "faitheval", "--analyze", "--name", "sft",
+        "--exclude", "ragtruth", "--rng-seed", "7", "--allow-seed-mismatch",
+    ])
+    assert rc == 0
+    argv = captured_argv["argv"]
+    assert "--benchmarks" in argv and argv[argv.index("--benchmarks") + 1] == "faitheval"
+    assert "--exclude" in argv and argv[argv.index("--exclude") + 1] == "ragtruth"
+    assert "--rng-seed" in argv and argv[argv.index("--rng-seed") + 1] == "7"
+    assert "--allow-seed-mismatch" in argv
+
+
 def test_continue_on_error_keeps_going(tmp_path, monkeypatch):
     _fake_launcher(monkeypatch, fail_seeds=[7])
     group = _write_ckpt_ensemble(tmp_path / "grp", [42, 7])

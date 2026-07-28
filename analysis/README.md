@@ -130,7 +130,7 @@ run_plots.sh            = python -m analysis.plot
 | `--checkpoints SPEC`       | — (required)       | Training ensemble: a `..._ensemble/` group dir, a `.../seed_*` glob, or one seed dir.      |
 | `--out DIR`                | — (required)       | Root for the produced eval dirs (`<DIR>/seed_<SEED>/` each).                               |
 | `--checkpoint-subdir NAME` | `final_checkpoint` | Model subdir inside each seed dir; falls back to the seed dir itself if absent.            |
-| `--benchmarks a,b`         | all five           | Subset to run per checkpoint.                                                              |
+| `--benchmarks a,b`         | all five           | Subset to run per checkpoint; also forwarded to `analysis.cli` when `--analyze` is set, so extra `--arm`s scoped to more benchmarks don't leak in. |
 | `--num-samples N`          | full dataset       | Per-benchmark sample cap forwarded to the launcher.                                        |
 | `--python PATH`            | this interpreter   | Interpreter to run the launcher with.                                                      |
 | `--dry-run`                | off                | Print the planned launcher commands without loading any model.                             |
@@ -142,6 +142,10 @@ run_plots.sh            = python -m analysis.plot
 | `--reference NAME`         | auto               | Reference arm for `--analyze`.                                                             |
 | `--analysis-out DIR`       | `<out>/analysis`   | Output dir for `--analyze`.                                                                |
 | `--no-plot`                | off                | Skip figures in `--analyze`.                                                               |
+| `--exclude a,b`            | none                | Benchmark exclude-list, forwarded to `analysis.cli` for `--analyze`.                       |
+| `--primary-map FILE`       | built-in            | Primary-metric override, forwarded to `analysis.cli` for `--analyze`.                      |
+| `--rng-seed N`              | `0`                 | Bootstrap RNG seed, forwarded to `analysis.cli` for `--analyze`.                           |
+| `--allow-seed-mismatch`    | off                 | Forwarded to `analysis.cli` for `--analyze` (see paired-mode note below).                  |
 
 ### `run_analysis.sh` / `run_eval_ensemble.sh` (→ `analysis.cli`)
 

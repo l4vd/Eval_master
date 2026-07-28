@@ -276,6 +276,17 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--analysis-out", default=None,
                     help="Output dir for --analyze (default: <out>/analysis).")
     ap.add_argument("--no-plot", action="store_true", help="Skip figures in --analyze.")
+    ap.add_argument("--exclude", default=None,
+                    help="Comma-separated benchmark exclude-list, forwarded to analysis.cli "
+                         "for --analyze.")
+    ap.add_argument("--primary-map", default=None,
+                    help="YAML/JSON overriding the primary-metric-per-benchmark map, "
+                         "forwarded to analysis.cli for --analyze.")
+    ap.add_argument("--rng-seed", type=int, default=0,
+                    help="Bootstrap RNG seed, forwarded to analysis.cli for --analyze.")
+    ap.add_argument("--allow-seed-mismatch", action="store_true",
+                    help="Forwarded to analysis.cli for --analyze: intersect shared seeds "
+                         "instead of failing loudly in paired mode.")
     args = ap.parse_args(argv)
 
     benchmarks = tuple(args.benchmarks.split(",")) if args.benchmarks else _DEFAULT_BENCHMARKS
@@ -296,10 +307,25 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.analyze:
         analysis_out = Path(args.analysis_out) if args.analysis_out else Path(args.out) / "analysis"
+        # The --benchmarks restriction applied to the eval step above must also apply
+        # here, or an --arm pointed at a differently-scoped eval dir (e.g. a full
+        # five-benchmark `base`) silently pulls in benchmarks the produced ensemble
+        # was never evaluated on.
+        passthrough: list[str] = []
+        if args.benchmarks:
+            passthrough += ["--benchmarks", args.benchmarks]
+        if args.exclude:
+            passthrough += ["--exclude", args.exclude]
+        if args.primary_map:
+            passthrough += ["--primary-map", args.primary_map]
+        if args.allow_seed_mismatch:
+            passthrough.append("--allow-seed-mismatch")
+        if args.rng_seed:
+            passthrough += ["--rng-seed", str(args.rng_seed)]
         return _run_analysis(
             Path(args.out), name=args.name, extra_arms=args.arm or [],
             reference=args.reference, analysis_out=analysis_out,
-            no_plot=args.no_plot, passthrough=[],
+            no_plot=args.no_plot, passthrough=passthrough,
         )
 
     print(f"\n==> Eval outputs under: {args.out}")
