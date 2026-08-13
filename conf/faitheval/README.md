@@ -21,6 +21,7 @@ its flags. See the parent [config reference](../README.md) for global keys and t
 | `strict_match` | bool | `false` | `--strict-match` | Match against each task's **strict** valid-phrase list rather than the lenient one (see task config below). |
 | `num_samples` | int \| null | `null` | `--num-samples` | Evaluate only the first N examples; `null` = global `num_samples` = full split. |
 | `max_new_tokens` | int | `256` | `--max-new-tokens` | Generation length cap per example. |
+| `batch_size` | int | `8` | `--batch-size` | Prompts per forward pass. Near-linear speed-up on a GPU; lower on CUDA OOM. **Keep fixed across compared models** — see below. |
 | `extra_args` | list[str] | `[]` | (appended raw) | Any flag below not surfaced as a key. |
 
 ### Tasks
@@ -67,9 +68,39 @@ Each task loads a config file (override with `--config`). Fields, e.g.
 | `strict_valid_phrases` | Used instead when `strict_match=true` (a narrower list). |
 | `context_column` / `question_column` | Dataset column names for the context and question. |
 
+## Batch size and comparability
+
+The eval loop is one `generate()` per example, so `batch_size` is the main runtime lever
+here. It does **not** change the protocol: prompts, decoding parameters and scoring are
+identical to the unbatched path.
+
+Verified on the HPC pins (torch 2.2.2 / transformers 4.41.2), over deliberately ragged
+prompt lengths (53–143 tokens) so padding was genuinely exercised: `batch_size` 1, 4 and 8
+produced **byte-identical** generations to each other and to the pre-batching single-call
+code, in both the `chat_template` and `concat` prompt formats.
+
+Batching does pad the prompts, which perturbs the logits in their last bits, so a greedy
+argmax tie could in principle break the other way on some model. Nothing of the sort was
+observed, but the cheap insurance is to keep `batch_size` **fixed across every model you
+compare**; it is recorded in each `<task>_summary.json` so a run's value stays recoverable.
+
+Batching REQUIRES left padding, which `HFChatGenerator` sets. This is not cosmetic: with
+right padding the same batch-of-8 reproduced only 1 of 8 unbatched generations, because
+short prompts begin decoding from pad tokens.
+
+## Runtime is a degeneration signal
+
+`max_new_tokens: 256` is a *safety cap*, not the expected length: the prompt instructs
+"respond with the exact answer only" and scoring is exact match, so a well-behaved model
+emits a few tokens and stops. A checkpoint that runs to the cap on every example therefore
+costs ~25× the wall-clock of one that does not — and scores near zero for the same reason.
+`<task>_summary.json` records `mean_prediction_words` to make that visible directly rather
+than inferring it from how long the job took.
+
 ## Output
 
 Writes `<output_dir>/faitheval/<task>_summary.json` (flat: `task`, `accuracy`,
-`num_examples`, …) plus per-prediction files. The [analysis layer](../../analysis/README.md)
-reads `accuracy` (higher is better) as the primary metric, and synthesizes a `mean` task
-when more than one task ran.
+`num_examples`, `mean_prediction_words`, `batch_size`, `max_new_tokens`) plus
+per-prediction files. The [analysis layer](../../analysis/README.md) reads `accuracy`
+(higher is better) as the primary metric, and synthesizes a `mean` task when more than
+one task ran.

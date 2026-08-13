@@ -11,7 +11,12 @@ import subprocess
 
 from analysis import eval_checkpoints, fixtures
 from analysis.discover import discover_arm
-from analysis.eval_checkpoints import discover_checkpoints, plan_evaluations, run_evaluations
+from analysis.eval_checkpoints import (
+    completed_benchmarks,
+    discover_checkpoints,
+    plan_evaluations,
+    run_evaluations,
+)
 
 
 def _write_ckpt_ensemble(group, seeds, *, subdir="final_checkpoint"):
@@ -152,3 +157,50 @@ def test_continue_on_error_keeps_going(tmp_path, monkeypatch):
     assert (out / "seed_42" / "faitheval").is_dir()
     assert (out / "seed_7" / "run_metadata.json").is_file()  # stamped before the launcher
     assert not (out / "seed_7" / "faitheval").exists()       # its benchmark never wrote
+
+
+# --- resume ---------------------------------------------------------------------
+
+def test_completed_benchmarks_needs_a_summary(tmp_path):
+    """A summary marks completion; incrementally-written predictions do not."""
+    (tmp_path / "faitheval").mkdir()
+    (tmp_path / "faitheval" / "counterfactual_summary.json").write_text("{}", encoding="utf-8")
+    # halueval got as far as appending per-sample rows but never wrote its summary.
+    (tmp_path / "halueval").mkdir()
+    (tmp_path / "halueval" / "qa_m_results.json").write_text("{}", encoding="utf-8")
+
+    done = completed_benchmarks(tmp_path, ["faitheval", "halueval", "harness"])
+    assert done == ["faitheval"]
+
+
+def test_resume_skips_only_finished_seeds(tmp_path, monkeypatch):
+    calls = _fake_launcher(monkeypatch)
+    group = _write_ckpt_ensemble(tmp_path / "grp", [42, 7])
+    out = tmp_path / "eval"
+
+    # First pass: seed 7 completes, then the "walltime kill" leaves seed 42 untouched.
+    run_evaluations(plan_evaluations(str(group / "seed_7"), out, benchmarks=["faitheval"]))
+    assert len(calls) == 1
+
+    # Re-submitting the whole ensemble with --resume must only run the missing seed.
+    run_evaluations(
+        plan_evaluations(str(group), out, benchmarks=["faitheval"]), resume=True
+    )
+    assert len(calls) == 2
+    ran = [c for c in calls[1] if c.startswith("output_dir=")][0]
+    assert ran.endswith("seed_42")
+    assert (out / "seed_42" / "faitheval").is_dir()
+
+
+def test_resume_reruns_a_seed_missing_one_benchmark(tmp_path, monkeypatch):
+    """A seed killed between benchmarks is incomplete, so resume must redo it."""
+    calls = _fake_launcher(monkeypatch)
+    group = _write_ckpt_ensemble(tmp_path / "grp", [42])
+    out = tmp_path / "eval"
+    # faitheval finished; harness never started.
+    fixtures.write_faitheval(out / "seed_42" / "faitheval", {"counterfactual": 0.5})
+
+    run_evaluations(
+        plan_evaluations(str(group), out, benchmarks=["faitheval", "harness"]), resume=True
+    )
+    assert len(calls) == 1  # not skipped

@@ -67,6 +67,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--device-map", default="auto", help="`device_map` passed to `from_pretrained`.")
     parser.add_argument("--dtype", default="bfloat16", choices=["bfloat16", "float16", "float32"], help="Model dtype.")
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1,
+        help="Prompts generated per forward pass. >1 is much faster on a GPU; lower it if "
+        "you hit CUDA OOM. Keep it fixed across models you intend to compare.",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -104,6 +111,7 @@ def build_config(args: argparse.Namespace) -> EvalConfig:
         output_dir=args.output_dir,
         device_map=args.device_map,
         dtype=args.dtype,
+        batch_size=args.batch_size,
     )
 
 

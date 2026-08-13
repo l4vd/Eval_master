@@ -55,6 +55,24 @@ class CheckpointEvalJob:
     checkpoint: Path
     out_dir: Path
     command: list[str] = field(default_factory=list)
+    benchmarks: tuple[str, ...] = _DEFAULT_BENCHMARKS
+
+
+def completed_benchmarks(out_dir: Path, benchmarks: tuple[str, ...] | list[str]) -> list[str]:
+    """Which of `benchmarks` already have finished results under `out_dir`.
+
+    All three launchers write their ``*summary*.json`` only after the benchmark
+    finishes (``<task>_summary.json`` for FaithEval, ``<task>_<label>_summary.json``
+    for HaluEval, ``summary.json`` for the harness), so its presence — unlike that of
+    the incrementally-appended prediction files — means the benchmark ran to
+    completion. A seed killed mid-benchmark therefore correctly reads as incomplete.
+    """
+    done = []
+    for name in benchmarks:
+        bench_dir = out_dir / name
+        if bench_dir.is_dir() and any(bench_dir.glob("*summary*.json")):
+            done.append(name)
+    return done
 
 
 def _is_seed_checkpoint_dir(path: Path, checkpoint_subdir: str) -> bool:
@@ -174,7 +192,8 @@ def plan_evaluations(
             ckpt, out_dir, launcher=launcher, python=python,
             benchmarks=benchmarks, num_samples=num_samples, extra=extra,
         )
-        jobs.append(CheckpointEvalJob(seed=seed, checkpoint=ckpt, out_dir=out_dir, command=cmd))
+        jobs.append(CheckpointEvalJob(seed=seed, checkpoint=ckpt, out_dir=out_dir,
+                                      command=cmd, benchmarks=tuple(benchmarks)))
     return jobs
 
 
@@ -186,7 +205,8 @@ def _write_run_metadata(job: CheckpointEvalJob) -> None:
 
 
 def run_evaluations(
-    jobs: list[CheckpointEvalJob], *, dry_run: bool = False, continue_on_error: bool = True
+    jobs: list[CheckpointEvalJob], *, dry_run: bool = False, continue_on_error: bool = True,
+    resume: bool = False,
 ) -> list[CheckpointEvalJob]:
     """Execute each eval job in turn; returns the jobs that were run (or planned).
 
@@ -194,10 +214,20 @@ def run_evaluations(
     launcher runs, so a crash mid-benchmark still leaves a discoverable, seed-tagged dir.
     With ``continue_on_error`` (default), a failed seed is reported but the rest proceed —
     a partial ensemble still aggregates on the analysis side.
+
+    With ``resume``, a seed whose every requested benchmark already wrote a summary is
+    skipped. Nothing here is checkpointed *within* a seed, so an ensemble truncated by a
+    walltime kill otherwise re-runs the seeds it already paid for from scratch.
     """
     failures: list[int | None] = []
     for job in jobs:
         header = f"seed_{job.seed}" if job.seed is not None else "(no seed)"
+        if resume and not dry_run:
+            done = completed_benchmarks(job.out_dir, job.benchmarks)
+            if len(done) == len(job.benchmarks):
+                print(f"\n==> [eval-checkpoints] {header}: SKIPPED (all "
+                      f"{len(done)} benchmark(s) already complete in {job.out_dir})")
+                continue
         print(f"\n==> [eval-checkpoints] {header}: {job.checkpoint}")
         print("    " + " ".join(job.command))
         if dry_run:
@@ -263,6 +293,10 @@ def main(argv: list[str] | None = None) -> int:
                     help="Print the planned launcher commands without running them.")
     ap.add_argument("--stop-on-error", action="store_true",
                     help="Abort on the first failed seed (default: keep going).")
+    ap.add_argument("--resume", action="store_true",
+                    help="Skip seeds whose requested benchmarks all already wrote a "
+                         "summary — re-submit after a walltime kill without redoing "
+                         "the seeds that finished.")
     ap.add_argument("--launcher-extra", nargs=argparse.REMAINDER, default=None,
                     help="Extra Hydra overrides forwarded to the launcher (must come last).")
     # --analyze group: chain straight into analysis.cli on the produced outputs.
@@ -300,7 +334,8 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"No checkpoints found under: {args.checkpoints}")
 
     print(f"==> {len(jobs)} checkpoint(s) to evaluate -> {args.out}")
-    run_evaluations(jobs, dry_run=args.dry_run, continue_on_error=not args.stop_on_error)
+    run_evaluations(jobs, dry_run=args.dry_run, continue_on_error=not args.stop_on_error,
+                    resume=args.resume)
 
     if args.dry_run:
         return 0

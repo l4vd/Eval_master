@@ -104,9 +104,14 @@ class HFChatGenerator:
         cache_dir: str | None = None,
         device_map: str = "auto",
         dtype: str = "bfloat16",
+        batch_size: int = 1,
     ) -> None:
         if dtype not in _DTYPE_BY_NAME:
             raise ValueError(f"Unsupported dtype {dtype!r}; choose from {sorted(_DTYPE_BY_NAME)}")
+        if batch_size < 1:
+            raise ValueError(f"batch_size must be >= 1, got {batch_size}")
+
+        self.batch_size = batch_size
 
         logger.info("Loading model %s (dtype=%s, device_map=%s)", model_id, dtype, device_map)
         model = _load_causal_lm(model_id, base_model_id, cache_dir, _DTYPE_BY_NAME[dtype], device_map)
@@ -119,6 +124,11 @@ class HFChatGenerator:
         tokenizer = AutoTokenizer.from_pretrained(resolved_tokenizer_id, cache_dir=cache_dir)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
+        # Batched generation on a decoder-only model REQUIRES left padding: with the
+        # default right padding the pad tokens sit between the prompt and the first
+        # generated token, so short prompts in a batch decode from padding and the
+        # answers silently degrade. Harmless at batch_size=1.
+        tokenizer.padding_side = "left"
 
         self.tokenizer = tokenizer
         # The prompt is rendered with the evaluated model's own chat template, so the
@@ -146,8 +156,7 @@ class HFChatGenerator:
         """'chat_template' or 'concat' — recorded alongside results for provenance."""
         return "chat_template" if self._has_chat_template else "concat"
 
-    def generate(self, messages: list[dict[str, str]], params: GenerationParams) -> str:
-        """Generate a single completion for a chat-formatted prompt."""
+    def _generation_kwargs(self, params: GenerationParams) -> dict[str, object]:
         kwargs: dict[str, object] = {
             "max_new_tokens": params.max_new_tokens,
             "do_sample": params.do_sample,
@@ -155,12 +164,36 @@ class HFChatGenerator:
         if params.do_sample:
             kwargs["temperature"] = params.temperature
             kwargs["top_p"] = params.top_p
+        return kwargs
+
+    def generate(self, messages: list[dict[str, str]], params: GenerationParams) -> str:
+        """Generate a single completion for a chat-formatted prompt."""
+        return self.generate_many([messages], params)[0]
+
+    def generate_many(
+        self, batch: list[list[dict[str, str]]], params: GenerationParams
+    ) -> list[str]:
+        """Generate completions for several chat prompts in one padded forward pass.
+
+        Returned in input order, one string per element of `batch`. The prompts are
+        built exactly as in the single-example path, so batching changes throughput
+        and not the protocol: on the pinned stack (torch 2.2.2 / transformers 4.41)
+        batch sizes 1/4/8 reproduce the unbatched generations byte-for-byte over
+        ragged prompt lengths, in both prompt formats. Padding could still flip a
+        greedy argmax tie on some other model, so keep `batch_size` fixed across the
+        models you compare (it is recorded in the run summary).
+        """
+        if not batch:
+            return []
+        kwargs = self._generation_kwargs(params)
 
         if not self._has_chat_template:
-            prompt = "\n\n".join(m["content"].strip() for m in messages)
-            outputs = self._generator(prompt, return_full_text=False, **kwargs)
-            return outputs[0]["generated_text"].strip()
+            prompts = ["\n\n".join(m["content"].strip() for m in messages) for messages in batch]
+            outputs = self._generator(
+                prompts, return_full_text=False, batch_size=self.batch_size, **kwargs
+            )
+            return [out[0]["generated_text"].strip() for out in outputs]
 
-        # Passing the message list makes the pipeline apply the tokenizer's template.
-        outputs = self._generator(messages, **kwargs)
-        return outputs[0]["generated_text"][-1]["content"].strip()
+        # Passing message lists makes the pipeline apply the tokenizer's template.
+        outputs = self._generator(list(batch), batch_size=self.batch_size, **kwargs)
+        return [out[0]["generated_text"][-1]["content"].strip() for out in outputs]

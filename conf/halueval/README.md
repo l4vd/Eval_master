@@ -20,6 +20,7 @@ shared `model` block.
 | `backend` | str | `hf` | `--backend` | `hf` = local judge (the model under test decides Yes/No); `openai` = reproduction path (needs `OPENAI_API_KEY`). |
 | `num_samples` | int \| null | `null` | `--num-samples` | Evaluate only the first N examples; `null` = global. |
 | `max_new_tokens` | int | `16` | `--max-new-tokens` | Short — a Yes/No answer. |
+| `batch_size` | int | `8` | `--batch-size` | Judge prompts per forward pass (`backend: hf` only). The dominant runtime lever here — see below. Lower it if `summarization` OOMs. |
 | `extra_args` | list[str] | `[]` | (appended raw) | Any flag below not surfaced. |
 
 ### Tasks
@@ -29,6 +30,28 @@ shared `model` block.
 | `qa` | an answer to a question contains a hallucination. |
 | `dialogue` | a dialogue response contains non-factual/hallucinated content. |
 | `summarization` | a summary contains information unsupported by the source document. |
+
+## Batch size
+
+Each task is a **10,000-row** dataset and only 16 tokens are generated per row, so at
+`batch_size: 1` this benchmark is almost entirely per-call overhead rather than real
+decoding — batching is where the wall-clock goes. `summarization` carries by far the
+longest prompts (full source documents) and is the split that will OOM first.
+
+Batching changes throughput only — prompt construction, decoding and Yes/No parsing are
+untouched, and the per-row `random()` draw that assigns the hallucinated/correct answer
+still happens once per row in index order, so a given seed yields the same ground-truth
+assignment as the unbatched loop.
+
+Verified on the HPC pins (torch 2.2.2 / transformers 4.41.2): `batch_size` 1, 4 and 8
+produced byte-identical judgements to each other and to the pre-batching single-call code,
+in both prompt formats, and the three dataset loops produce identical per-sample result
+files and accuracies at `batch_size` 1 vs 8. Padding could in principle flip a greedy
+argmax tie on some model, so keep `batch_size` **fixed across every model you compare**; it
+is recorded in each `<task>_<label>_summary.json`.
+
+Full-size runs are the published protocol; use `num_samples` for iteration and debugging,
+not for the numbers you report against published baselines.
 
 ## Model fields consumed
 

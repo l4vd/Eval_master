@@ -7,4 +7,10 @@ split: test
 strict_match: false          # use each task's strict valid-phrase list
 num_samples: null            # null => use the global `num_samples`
 max_new_tokens: 256
+# Prompts generated per forward pass. The eval loop is one generate() call per
+# example, so on a GPU this is close to a linear speed-up until memory binds.
+# Lower it on CUDA OOM. It is recorded in each task's summary.json: padding shifts
+# the logits slightly, so a greedy argmax tie can break the other way — keep this
+# FIXED across every model you compare.
+batch_size: 8
 extra_args: []               # raw flags forwarded to src/run_eval.py, e.g. ["--do-sample"]

@@ -15,6 +15,17 @@
 #   ./run_eval_checkpoints.sh --checkpoints '.../seed_*' --out outputs/eval/tmp \
 #       --benchmarks faitheval,harness --dry-run
 #
+#   # re-submit after a walltime kill: seeds whose benchmarks all wrote a summary
+#   # are skipped, so only the truncated tail is re-evaluated
+#   ./run_eval_checkpoints.sh --checkpoints '.../seed_*' --out outputs/eval/dpo \
+#       --benchmarks faitheval,halueval,harness --resume
+#
+# NOTE: nothing is checkpointed *within* a seed, and a seed that exits non-zero is
+# reported but skipped over (--stop-on-error to abort instead). Prefer one scheduler
+# job per seed: runtime is checkpoint-dependent (a model that ignores the length
+# instruction can cost 10x a well-behaved one), so a walltime budget calibrated on
+# a fast arm will silently truncate a slow one.
+#
 # Thin wrapper over `python -m analysis.eval_checkpoints`. Runs in Eval_master's own
 # .venv (same resolution as run_all.sh / run_analysis.sh).
 

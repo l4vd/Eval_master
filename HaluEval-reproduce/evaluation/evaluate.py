@@ -18,7 +18,12 @@ def _ensure_openai():
     return openai
 
 
-def get_qa_response(model, question, answer, instruction, backend="openai", generator=None):
+def build_qa_request(question, answer, instruction):
+    """The (chat messages, flat completion prompt) pair for one QA judgement.
+
+    Split out of `get_qa_response` so the batched HF path builds byte-identical
+    prompts without going through the one-at-a-time generate call.
+    """
     message = [
         {"role": "system", "content":"You are a huallucination detector. You MUST determine if the provided answer contains hallucination or not for the question based on the world knowledge. The answer you provided MUST be \"Yes\" or \"No\""},
         {"role": "user", "content": instruction +
@@ -27,6 +32,11 @@ def get_qa_response(model, question, answer, instruction, backend="openai", gene
                                     "\n#Your Judgement#: "}
     ]
     prompt = instruction + "\n\n#Question#: " + question + "\n#Answer#: " + answer + "\n#Your Judgement#:"
+    return message, prompt
+
+
+def get_qa_response(model, question, answer, instruction, backend="openai", generator=None):
+    message, prompt = build_qa_request(question, answer, instruction)
     if backend == "hf":
         return generator.generate(message, prompt)
     openai = _ensure_openai()
@@ -66,7 +76,8 @@ def get_qa_response(model, question, answer, instruction, backend="openai", gene
     return response
 
 
-def get_dialogue_response(model, dialog, response, instruction, backend="openai", generator=None):
+def build_dialogue_request(dialog, response, instruction):
+    """The (chat messages, flat completion prompt) pair for one dialogue judgement."""
     message = [
         {"role": "system", "content": "You are a response judge. You MUST determine if the provided response contains non-factual or hallucinated information. The answer you give MUST be \"Yes\" or \"No\""},
         {"role": "user", "content": instruction +
@@ -75,6 +86,11 @@ def get_dialogue_response(model, dialog, response, instruction, backend="openai"
                                     "\n#Your Judgement#: "}
     ]
     prompt = instruction + "\n\n#Dialogue History#: " + dialog + "\n#Response#: " + response + "\n#Your Judgement#:"
+    return message, prompt
+
+
+def get_dialogue_response(model, dialog, response, instruction, backend="openai", generator=None):
+    message, prompt = build_dialogue_request(dialog, response, instruction)
     if backend == "hf":
         return generator.generate(message, prompt)
     openai = _ensure_openai()
@@ -130,6 +146,24 @@ def truncate_message(prompt1, prompt2, model="davinci"):
     return prompt
 
 
+def build_summarization_request(document, summary, instruction):
+    """The (chat messages, flat completion prompt) pair for one summary judgement.
+
+    Untruncated: `truncate_message` is a workaround for davinci's 2033-token window
+    and needs tiktoken (an openai-path dependency).
+    """
+    message = [
+        {"role": "system", "content": "You are a summary judge. You MUST determine if the provided summary contains non-factual or hallucinated information. The answer you give MUST be \"Yes\" or \"No\""},
+        {"role": "user", "content": instruction +
+                                    "\n\n#Document#: " + document +
+                                    "\n#Summary#: " + summary +
+                                    "\n#Your Judgement#: "}
+    ]
+    prompt1 = instruction + "\n\n#Document#: " + document
+    prompt2 = "\n#Summary#: " + summary + "\n#Your Judgement#:"
+    return message, prompt1 + prompt2
+
+
 def get_summarization_response(model, document, summary, instruction, backend="openai", generator=None):
     message = [
         {"role": "system", "content": "You are a summary judge. You MUST determine if the provided summary contains non-factual or hallucinated information. The answer you give MUST be \"Yes\" or \"No\""},
@@ -141,8 +175,6 @@ def get_summarization_response(model, document, summary, instruction, backend="o
     prompt1 = instruction + "\n\n#Document#: " + document
     prompt2 = "\n#Summary#: " + summary + "\n#Your Judgement#:"
     if backend == "hf":
-        # Untruncated: `truncate_message` is a workaround for davinci's 2033-token
-        # window and needs tiktoken (an openai-path dependency).
         return generator.generate(message, prompt1 + prompt2)
     if model == "davinci":
         prompt = truncate_message(prompt1, prompt2)
@@ -185,6 +217,13 @@ def get_summarization_response(model, document, summary, instruction, backend="o
     return response
 
 
+def _resolve_batch_size(backend, generator):
+    """Prompts per forward pass. Only the local HF judge batches; OpenAI stays serial."""
+    if backend != "hf":
+        return 1
+    return max(1, getattr(generator, "batch_size", 1))
+
+
 def evaluation_qa_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None):
     with open(file, 'r', encoding="utf-8") as f:
         data = []
@@ -192,51 +231,69 @@ def evaluation_qa_dataset(model, file, instruction, output_path, backend="openai
             data.append(json.loads(line))
 
         n = len(data) if num_samples is None else min(num_samples, len(data))
+        batch_size = _resolve_batch_size(backend, generator)
         correct = 0
         incorrect = 0
-        for i in range(n):
-            knowledge = data[i]["knowledge"]
-            question = data[i]["question"]
-            hallucinated_answer = data[i]["hallucinated_answer"]
-            right_answer = data[i]["right_answer"]
+        for start in range(0, n, batch_size):
+            # Phase 1 — draw each item's ground truth and build its prompt. random()
+            # is still called exactly once per index in ascending order, so the Yes/No
+            # assignment is identical to the unbatched loop for a given seed.
+            pending = []
+            for i in range(start, min(start + batch_size, n)):
+                knowledge = data[i]["knowledge"]
+                question = data[i]["question"]
+                hallucinated_answer = data[i]["hallucinated_answer"]
+                right_answer = data[i]["right_answer"]
 
-            if random.random() > 0.5:
-                answer = hallucinated_answer
-                ground_truth = "Yes"
+                if random.random() > 0.5:
+                    answer = hallucinated_answer
+                    ground_truth = "Yes"
+                else:
+                    answer = right_answer
+                    ground_truth = "No"
+
+                pending.append((i, knowledge, question, answer, ground_truth,
+                                build_qa_request(question, answer, instruction)))
+
+            # Phase 2 — one padded forward pass for the whole chunk.
+            if backend == "hf":
+                answers = generator.generate_many([request for *_, request in pending])
             else:
-                answer = right_answer
-                ground_truth = "No"
+                answers = [get_qa_response(model, question, answer, instruction,
+                                           backend=backend, generator=generator)
+                           for _, _, question, answer, _, _ in pending]
 
-            ans = get_qa_response(model, question, answer, instruction, backend=backend, generator=generator)
-            ans = ans.replace(".", "")
+            # Phase 3 — score and write, in input order.
+            for (i, knowledge, question, answer, ground_truth, _), ans in zip(pending, answers):
+                ans = ans.replace(".", "")
 
-            if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
-                gen = {"knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": "failed!"}
+                if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
+                    gen = {"knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": "failed!"}
+                    dump_jsonl(gen, output_path, append=True)
+                    incorrect += 1
+                    print('sample {} fails......'.format(i))
+                    continue
+                elif "Yes" in ans:
+                    if ans != "Yes":
+                        ans = "Yes"
+                    gen = {"knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": ans}
+                elif "No" in ans:
+                    if ans != "No":
+                        ans = "No"
+                    gen = {"knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": ans}
+                else:
+                    gen = None
+                    incorrect += 1
+
+                assert(gen is not None)
+
+                if ground_truth == ans:
+                    correct += 1
+                else:
+                    incorrect += 1
+
+                print('sample {} success......'.format(i))
                 dump_jsonl(gen, output_path, append=True)
-                incorrect += 1
-                print('sample {} fails......'.format(i))
-                continue
-            elif "Yes" in ans:
-                if ans != "Yes":
-                    ans = "Yes"
-                gen = {"knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": ans}
-            elif "No" in ans:
-                if ans != "No":
-                    ans = "No"
-                gen = {"knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": ans}
-            else:
-                gen = None
-                incorrect += 1
-
-            assert(gen is not None)
-
-            if ground_truth == ans:
-                correct += 1
-            else:
-                incorrect += 1
-
-            print('sample {} success......'.format(i))
-            dump_jsonl(gen, output_path, append=True)
 
         accuracy = correct / n if n else 0.0
         print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(correct, incorrect, accuracy))
@@ -250,49 +307,65 @@ def evaluation_dialogue_dataset(model, file, instruction, output_path, backend="
             data.append(json.loads(line))
 
         n = len(data) if num_samples is None else min(num_samples, len(data))
+        batch_size = _resolve_batch_size(backend, generator)
         correct = 0
         incorrect = 0
-        for i in range(n):
-            knowledge = data[i]["knowledge"]
-            dialog = data[i]["dialogue_history"]
-            hallucinated_response = data[i]["hallucinated_response"]
-            right_response = data[i]["right_response"]
+        for start in range(0, n, batch_size):
+            # Phase 1 — draw ground truths and build prompts (see evaluation_qa_dataset).
+            pending = []
+            for i in range(start, min(start + batch_size, n)):
+                knowledge = data[i]["knowledge"]
+                dialog = data[i]["dialogue_history"]
+                hallucinated_response = data[i]["hallucinated_response"]
+                right_response = data[i]["right_response"]
 
-            if random.random() > 0.5:
-                response = hallucinated_response
-                ground_truth = "Yes"
+                if random.random() > 0.5:
+                    response = hallucinated_response
+                    ground_truth = "Yes"
+                else:
+                    response = right_response
+                    ground_truth = "No"
+
+                pending.append((i, knowledge, dialog, response, ground_truth,
+                                build_dialogue_request(dialog, response, instruction)))
+
+            # Phase 2 — one padded forward pass for the whole chunk.
+            if backend == "hf":
+                answers = generator.generate_many([request for *_, request in pending])
             else:
-                response = right_response
-                ground_truth = "No"
+                answers = [get_dialogue_response(model, dialog, response, instruction,
+                                                 backend=backend, generator=generator)
+                           for _, _, dialog, response, _, _ in pending]
 
-            ans = get_dialogue_response(model, dialog, response, instruction, backend=backend, generator=generator)
-            ans = ans.replace(".", "")
+            # Phase 3 — score and write, in input order.
+            for (i, knowledge, dialog, response, ground_truth, _), ans in zip(pending, answers):
+                ans = ans.replace(".", "")
 
-            if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
-                gen = {"knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": "failed!"}
+                if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
+                    gen = {"knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": "failed!"}
+                    dump_jsonl(gen, output_path, append=True)
+                    incorrect += 1
+                    print('sample {} fails......'.format(i))
+                    continue
+                elif "Yes" in ans:
+                    if ans != "Yes":
+                        ans = "Yes"
+                    gen = {"knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": ans}
+                elif "No" in ans:
+                    if ans != "No":
+                        ans = "No"
+                    gen = {"knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": ans}
+                else:
+                    gen = None
+                assert (gen is not None)
+
+                if ground_truth == ans:
+                    correct += 1
+                else:
+                    incorrect += 1
+
+                print('sample {} success......'.format(i))
                 dump_jsonl(gen, output_path, append=True)
-                incorrect += 1
-                print('sample {} fails......'.format(i))
-                continue
-            elif "Yes" in ans:
-                if ans != "Yes":
-                    ans = "Yes"
-                gen = {"knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": ans}
-            elif "No" in ans:
-                if ans != "No":
-                    ans = "No"
-                gen = {"knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": ans}
-            else:
-                gen = None
-            assert (gen is not None)
-
-            if ground_truth == ans:
-                correct += 1
-            else:
-                incorrect += 1
-
-            print('sample {} success......'.format(i))
-            dump_jsonl(gen, output_path, append=True)
 
         accuracy = correct / n if n else 0.0
         print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(correct, incorrect, accuracy))
@@ -306,49 +379,66 @@ def evaluation_summarization_dataset(model, file, instruction, output_path, back
             data.append(json.loads(line))
 
         n = len(data) if num_samples is None else min(num_samples, len(data))
+        batch_size = _resolve_batch_size(backend, generator)
         correct = 0
         incorrect = 0
-        for i in range(n):
+        for start in range(0, n, batch_size):
+            # Phase 1 — draw ground truths and build prompts (see evaluation_qa_dataset).
+            # These documents are the longest prompts in HaluEval, so this is the split
+            # most likely to need a smaller --batch-size to stay inside GPU memory.
+            pending = []
+            for i in range(start, min(start + batch_size, n)):
+                document = data[i]["document"]
+                hallucinated_summary = data[i]["hallucinated_summary"]
+                right_summary = data[i]["right_summary"]
 
-            document = data[i]["document"]
-            hallucinated_summary = data[i]["hallucinated_summary"]
-            right_summary = data[i]["right_summary"]
+                if random.random() > 0.5:
+                    summary = hallucinated_summary
+                    ground_truth = "Yes"
+                else:
+                    summary = right_summary
+                    ground_truth = "No"
 
-            if random.random() > 0.5:
-                summary = hallucinated_summary
-                ground_truth = "Yes"
+                pending.append((i, document, summary, ground_truth,
+                                build_summarization_request(document, summary, instruction)))
+
+            # Phase 2 — one padded forward pass for the whole chunk.
+            if backend == "hf":
+                answers = generator.generate_many([request for *_, request in pending])
             else:
-                summary = right_summary
-                ground_truth = "No"
+                answers = [get_summarization_response(model, document, summary, instruction,
+                                                      backend=backend, generator=generator)
+                           for _, document, summary, _, _ in pending]
 
-            ans = get_summarization_response(model, document, summary, instruction, backend=backend, generator=generator)
-            ans = ans.replace(".", "")
+            # Phase 3 — score and write, in input order.
+            for (i, document, summary, ground_truth, _), ans in zip(pending, answers):
+                ans = ans.replace(".", "")
 
-            if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
-                gen = {"document": document, "summary": summary, "ground_truth": ground_truth, "judgement": "failed!"}
+                if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
+                    gen = {"document": document, "summary": summary, "ground_truth": ground_truth, "judgement": "failed!"}
+                    dump_jsonl(gen, output_path, append=True)
+                    incorrect += 1
+                    print('sample {} fails......'.format(i))
+                    continue
+                elif "Yes" in ans:
+                    if ans != "Yes":
+                        ans = "Yes"
+                    gen = {"document": document, "summary": summary, "ground_truth": ground_truth, "judgement": ans}
+                elif "No" in ans:
+                    if ans != "No":
+                        ans = "No"
+                    gen = {"document": document, "summary": summary, "ground_truth": ground_truth, "judgement": ans}
+                else:
+                    gen = None
+                assert (gen is not None)
+
+                if ground_truth == ans:
+                    correct += 1
+                else:
+                    incorrect += 1
+
+                print('sample {} success......'.format(i))
                 dump_jsonl(gen, output_path, append=True)
-                incorrect += 1
-                print('sample {} fails......'.format(i))
-                continue
-            elif "Yes" in ans:
-                if ans != "Yes":
-                    ans = "Yes"
-                gen = {"document": document, "summary": summary, "ground_truth": ground_truth, "judgement": ans}
-            elif "No" in ans:
-                if ans != "No":
-                    ans = "No"
-                gen = {"document": document, "summary": summary, "ground_truth": ground_truth, "judgement": ans}
-            else:
-                gen = None
-            assert (gen is not None)
-
-            if ground_truth == ans:
-                correct += 1
-            else:
-                incorrect += 1
-
-            print('sample {} success......'.format(i))
-            dump_jsonl(gen, output_path, append=True)
 
         accuracy = correct / n if n else 0.0
         print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(correct, incorrect, accuracy))
@@ -389,6 +479,10 @@ if __name__ == '__main__':
                         help="device_map passed to from_pretrained for the HF judge.")
     parser.add_argument("--max-new-tokens", dest="max_new_tokens", type=int, default=16,
                         help="Max new tokens for the HF judge (a Yes/No answer is short).")
+    parser.add_argument("--batch-size", dest="batch_size", type=int, default=1,
+                        help="Judge prompts per forward pass (--backend hf only). >1 is much "
+                             "faster on a GPU; lower it if you hit CUDA OOM on summarization. "
+                             "Keep it fixed across models you intend to compare.")
     parser.add_argument("--num-samples", dest="num_samples", type=int, default=None,
                         help="Evaluate only the first N examples (useful for smoke tests).")
     parser.add_argument("--output-dir", dest="output_dir", default=None,
@@ -411,6 +505,7 @@ if __name__ == '__main__':
             device_map=args.device_map,
             dtype=args.dtype,
             max_new_tokens=args.max_new_tokens,
+            batch_size=args.batch_size,
         )
 
     instruction_file = "{}/{}_evaluation_instruction.txt".format(args.task, args.task)
@@ -448,7 +543,8 @@ if __name__ == '__main__':
 
     # Persist the headline accuracy so the stored run is self-contained (the other
     # four benchmarks all write a summary; HaluEval previously only printed it).
-    summary = {"task": args.task, "model": label, "backend": backend}
+    summary = {"task": args.task, "model": label, "backend": backend,
+               "batch_size": args.batch_size if backend == "hf" else 1}
     summary.update(stats or {})
     summary_path = os.path.join(results_dir, "{}_{}_summary.json".format(args.task, label))
     with open(summary_path, 'w', encoding='utf-8') as f:

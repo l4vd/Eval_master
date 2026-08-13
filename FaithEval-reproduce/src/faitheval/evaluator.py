@@ -45,6 +45,7 @@ def run_evaluation(config: EvalConfig) -> dict[str, Any]:
         cache_dir=config.cache_dir,
         device_map=config.device_map,
         dtype=config.dtype,
+        batch_size=config.batch_size,
     )
     gen_params = GenerationParams(
         max_new_tokens=config.max_new_tokens,
@@ -57,34 +58,56 @@ def run_evaluation(config: EvalConfig) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     predictions_path = output_dir / f"{config.task}_predictions.jsonl"
 
+    # Materialized so the loop can slice batches; the FaithEval splits are ~1k rows.
+    examples = list(dataset)
+    num_examples = len(examples)
+
     num_correct = 0
+    total_words = 0
     with predictions_path.open("w", encoding="utf-8") as predictions_file:
-        for example in tqdm(dataset, desc=f"Evaluating [{config.task}]"):
-            messages = build_messages(example, config.task_config, config.system_prompt)
-            prediction = generator.generate(messages, gen_params)
-            correct = score_prediction(prediction, example, config)
-            num_correct += int(correct)
+        with tqdm(total=num_examples, desc=f"Evaluating [{config.task}]") as progress:
+            for start in range(0, num_examples, config.batch_size):
+                chunk = examples[start : min(start + config.batch_size, num_examples)]
+                batch = [
+                    build_messages(example, config.task_config, config.system_prompt)
+                    for example in chunk
+                ]
+                predictions = generator.generate_many(batch, gen_params)
 
-            record = {
-                "question": example[config.task_config.question_column],
-                "prediction": prediction,
-                "correct": correct,
-            }
-            predictions_file.write(json.dumps(record, ensure_ascii=False) + "\n")
+                for example, prediction in zip(chunk, predictions):
+                    correct = score_prediction(prediction, example, config)
+                    num_correct += int(correct)
+                    total_words += len(prediction.split())
 
-    num_examples = len(dataset)
+                    record = {
+                        "question": example[config.task_config.question_column],
+                        "prediction": prediction,
+                        "correct": correct,
+                    }
+                    predictions_file.write(json.dumps(record, ensure_ascii=False) + "\n")
+                progress.update(len(chunk))
+
     accuracy = num_correct / num_examples if num_examples else 0.0
+    # Mean answer length is a cheap degeneration probe: this task's prompt asks for
+    # "the exact answer only" and is scored by exact match, so an arm whose mean runs
+    # into the tens of words is ignoring the instruction — which shows up as a near-zero
+    # accuracy AND as a multi-hour runtime, both from the same cause.
+    mean_prediction_words = total_words / num_examples if num_examples else 0.0
     summary = {
         "task": config.task,
         "model_id": config.model_id,
         "num_examples": num_examples,
         "num_correct": num_correct,
         "accuracy": accuracy,
+        "mean_prediction_words": mean_prediction_words,
+        "batch_size": config.batch_size,
+        "max_new_tokens": config.max_new_tokens,
     }
 
     summary_path = output_dir / f"{config.task}_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     logger.info("Accuracy: %.4f (%d/%d)", accuracy, num_correct, num_examples)
+    logger.info("Mean prediction length: %.1f words", mean_prediction_words)
     logger.info("Predictions written to %s", predictions_path)
     logger.info("Summary written to %s", summary_path)
     return summary

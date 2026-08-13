@@ -60,6 +60,7 @@ class EvalConfig:
     output_dir: str = "outputs"
     device_map: str = "auto"
     dtype: str = "bfloat16"
+    batch_size: int = 1
 
     @property
     def active_valid_phrases(self) -> list[str]:
