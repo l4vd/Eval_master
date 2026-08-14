@@ -30,7 +30,7 @@ num_fewshot: null
 # "auto" on a GPU (lm_eval probes for the largest batch that fits via CUDA OOM
 # retries); a fixed, modest size on CPU, where that OOM-probing isn't reliable.
 # Set to an int, or "auto:N", to pin/override.
-batch_size: "${auto_batch_size:}"
+batch_size: "${auto_batch_size:}" #32 rtx 8000 qwen 2.5 0.5b
 
 # How the question is presented to the evaluated model.
 #   false (default) — the published completion-style protocol, and lm_eval's own

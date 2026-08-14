@@ -11,5 +11,5 @@ max_new_tokens: 16           # a Yes/No answer is short
 # entirely per-call overhead — this is the single biggest runtime lever here.
 # `summarization` carries the longest prompts; lower this if it OOMs. Recorded in
 # summary.json — keep it FIXED across every model you compare.
-batch_size: 8
+batch_size: 8 #32 rtx 8000 qwen 2.5 0.5b
 extra_args: []               # raw flags forwarded to evaluation/evaluate.py
