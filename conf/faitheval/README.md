@@ -94,13 +94,28 @@ short prompts begin decoding from pad tokens.
 "respond with the exact answer only" and scoring is exact match, so a well-behaved model
 emits a few tokens and stops. A checkpoint that runs to the cap on every example therefore
 costs ~25× the wall-clock of one that does not — and scores near zero for the same reason.
-`<task>_summary.json` records `mean_prediction_words` to make that visible directly rather
-than inferring it from how long the job took.
+`<task>_summary.json` records this directly rather than leaving it to be inferred from how
+long the job took:
+
+- `mean_prediction_tokens` — mean answer length in tokens, the unit directly comparable to
+  the `max_new_tokens` budget above. (Counted by re-tokenizing the decoded prediction; the
+  pipeline discards the raw generated ids, so this is within a token or two of exact.)
+- `truncation_rate` — fraction of predictions that reached the cap. This is the failure
+  named outright: a rate near 1 means the model is not stopping, whatever the mean says.
+- `mean_prediction_words` — the original whitespace count, kept for continuity with runs
+  made before the token metrics existed.
+
+## Ordering
+
+`sort_by_length: desc` feeds examples to the generator longest-first rather than in dataset
+order, so each padded forward pass holds prompts of similar size (see the config comment).
+The predictions file is written back in dataset order and carries an `index` per row, so the
+artifact does not depend on the execution order and stays diffable across settings.
 
 ## Output
 
 Writes `<output_dir>/faitheval/<task>_summary.json` (flat: `task`, `accuracy`,
-`num_examples`, `mean_prediction_words`, `batch_size`, `max_new_tokens`) plus
-per-prediction files. The [analysis layer](../../analysis/README.md) reads `accuracy`
-(higher is better) as the primary metric, and synthesizes a `mean` task when more than
-one task ran.
+`num_examples`, `mean_prediction_tokens`, `truncation_rate`, `mean_prediction_words`,
+`batch_size`, `sort_by_length`, `max_new_tokens`) plus per-prediction files. The
+[analysis layer](../../analysis/README.md) reads `accuracy` (higher is better) as the
+primary metric, and synthesizes a `mean` task when more than one task ran.

@@ -13,4 +13,13 @@ max_new_tokens: 256
 # the logits slightly, so a greedy argmax tie can break the other way — keep this
 # FIXED across every model you compare.
 batch_size: 8 #32 rtx 8000 qwen 2.5 0.5b
+# Order examples by prompt token length before cutting batches: desc | asc | none.
+# The pipeline pads every batch to its own longest prompt, so in dataset order — where
+# length is effectively random — a single long context forces the whole batch up to its
+# size. Bucketing by length removes almost all of that waste at no cost to the protocol.
+# desc rather than asc so the peak-memory batch runs FIRST: a CUDA OOM then surfaces in
+# the first minute instead of after most of the run is already spent.
+# Like batch_size, this changes batch composition and so can flip a greedy argmax tie —
+# keep it FIXED across every model you compare. It is recorded in each task's summary.json.
+sort_by_length: desc
 extra_args: []               # raw flags forwarded to src/run_eval.py, e.g. ["--do-sample"]

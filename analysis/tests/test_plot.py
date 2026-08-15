@@ -54,6 +54,42 @@ def test_plot_benchmark_and_tasks(tmp_path):
     assert p1.with_suffix(".pdf").is_file()  # vector copy for the appendix
 
 
+def test_legend_never_overlaps_the_plotting_area(tmp_path, monkeypatch):
+    """matplotlib's default loc='best' parks a grouped-bar legend over the bars themselves.
+
+    Asserted on the geometry rather than by eye, because "best" is data-dependent: it lands
+    outside the bars on some inputs and squarely in the middle of the plot on others, so
+    only a bbox check catches the regression that actually shows up in the thesis figures.
+    """
+    res, _ = _multi_arm(tmp_path)
+
+    # The plot functions close their figure on save, so intercept it before that happens.
+    captured = []
+    real_save = plot._save
+    monkeypatch.setattr(plot, "_save", lambda fig, path, **kw: (captured.append(fig), real_save(fig, path, **kw))[1])
+
+    for fn in (plot.plot_benchmark, plot.plot_tasks):
+        captured.clear()
+        assert fn(res.records, "faitheval", tmp_path / "figs") is not None
+        fig = captured[0]
+        ax = fig.axes[0]
+        legend = ax.get_legend()
+        assert legend is not None, f"{fn.__name__}: no legend drawn"
+
+        # plot.py sets the backend with force=False, so the figure may still carry the
+        # base canvas, which has no renderer. Attach an Agg one to measure against.
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+        FigureCanvasAgg(fig)
+        renderer = fig.canvas.get_renderer()
+        lbox = legend.get_window_extent(renderer)
+        abox = ax.get_window_extent(renderer)
+        # Placed to the RIGHT of the axes: its left edge starts at or past the axes' right.
+        assert lbox.x0 >= abox.x1 - 1, (
+            f"{fn.__name__}: legend at x={lbox.x0:.0f} overlaps axes ending at x={abox.x1:.0f}"
+        )
+
+
 def test_plot_all_and_ranked_deltas(tmp_path):
     res, aggs = _multi_arm(tmp_path)
     comps = compare_all(aggs, res.arm_meta, reference="base")

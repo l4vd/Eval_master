@@ -12,4 +12,16 @@ max_new_tokens: 16           # a Yes/No answer is short
 # `summarization` carries the longest prompts; lower this if it OOMs. Recorded in
 # summary.json — keep it FIXED across every model you compare.
 batch_size: 8 #32 rtx 8000 qwen 2.5 0.5b
+# Order judge prompts by token length before cutting batches: desc | asc | none.
+# Only 16 tokens are generated per row, so runtime here is essentially the cost of the
+# PROMPT — and the pipeline pads every batch to its own longest one. In dataset order a
+# single long document drags its whole batch up; bucketing by length removes that waste.
+# This is the second-biggest runtime lever after batch_size, and by far the biggest on
+# `summarization`, whose CNN/DM documents have the widest length spread.
+# desc rather than asc so the peak-memory batch runs FIRST: a CUDA OOM then surfaces in
+# the first minute instead of after most of the run is already spent.
+# The Yes/No ground truths are drawn before the reordering, so the labels are unaffected;
+# batch composition does change, though, which can flip a greedy argmax tie — keep this
+# FIXED across every model you compare. Recorded in summary.json. Ignored on backend: openai.
+sort_by_length: desc
 extra_args: []               # raw flags forwarded to evaluation/evaluate.py

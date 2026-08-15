@@ -30,12 +30,34 @@ def score_prediction(prediction: str, example: dict[str, Any], config: EvalConfi
     raise ValueError(f"Unknown scoring mode: {task_config.scoring}")  # pragma: no cover
 
 
+def batch_order(lengths: list[int], sort_by_length: str) -> list[int]:
+    """Indices 0..n-1 in the order examples should be fed to the generator.
+
+    `lengths` are prompt token lengths. Sorting by them groups similarly-sized prompts into
+    the same padded forward pass: the pipeline pads every batch to its own longest prompt,
+    so under file order — where length is effectively random — one long context drags a
+    whole batch of short ones up to its size. Descending puts the peak-memory batch first,
+    so a CUDA OOM surfaces immediately instead of after most of the run is already spent.
+
+    Ties keep their original relative order (`sorted` is stable), so "none" and a split of
+    uniform-length prompts both reduce to the identity permutation.
+    """
+    order = list(range(len(lengths)))
+    if sort_by_length == "none":
+        return order
+    return sorted(order, key=lambda i: lengths[i], reverse=sort_by_length == "desc")
+
+
 def run_evaluation(config: EvalConfig) -> dict[str, Any]:
     """Run a full FaithEval evaluation and return a summary dict.
 
     Predictions are streamed to `<output_dir>/<task>_predictions.jsonl` as they
     are produced, and a `<output_dir>/<task>_summary.json` is written once the
     run completes.
+
+    Examples are generated in length-sorted order (see `batch_order`) but the predictions
+    file is restored to dataset order before the function returns, so the artifact does not
+    depend on the execution order.
     """
     dataset = load_task_dataset(config.task_config, config.split, config.num_samples)
     generator = HFChatGenerator(
@@ -62,52 +84,101 @@ def run_evaluation(config: EvalConfig) -> dict[str, Any]:
     examples = list(dataset)
     num_examples = len(examples)
 
+    # Built up front so the same rendering is used for the sort key and for generation.
+    all_messages = [
+        build_messages(example, config.task_config, config.system_prompt) for example in examples
+    ]
+    order = batch_order(generator.prompt_token_lengths(all_messages), config.sort_by_length)
+
     num_correct = 0
     total_words = 0
+    total_tokens = 0
+    num_truncated = 0
+    # Streamed rather than buffered so a job killed mid-run still leaves usable predictions;
+    # `index` is what makes those partial rows attributable back to the dataset.
     with predictions_path.open("w", encoding="utf-8") as predictions_file:
         with tqdm(total=num_examples, desc=f"Evaluating [{config.task}]") as progress:
             for start in range(0, num_examples, config.batch_size):
-                chunk = examples[start : min(start + config.batch_size, num_examples)]
-                batch = [
-                    build_messages(example, config.task_config, config.system_prompt)
-                    for example in chunk
-                ]
+                indices = order[start : min(start + config.batch_size, num_examples)]
+                batch = [all_messages[i] for i in indices]
                 predictions = generator.generate_many(batch, gen_params)
 
-                for example, prediction in zip(chunk, predictions):
+                for index, prediction in zip(indices, predictions):
+                    example = examples[index]
                     correct = score_prediction(prediction, example, config)
                     num_correct += int(correct)
                     total_words += len(prediction.split())
+                    # Re-tokenizes the DECODED string: the pipeline discards the raw
+                    # generated ids, so an exact count would mean bypassing it. Within a
+                    # token or two of the true length, which is all this probe needs.
+                    num_tokens = len(
+                        generator.tokenizer(prediction, add_special_tokens=False)["input_ids"]
+                    )
+                    total_tokens += num_tokens
+                    num_truncated += int(num_tokens >= config.max_new_tokens)
 
                     record = {
+                        "index": index,
                         "question": example[config.task_config.question_column],
                         "prediction": prediction,
                         "correct": correct,
                     }
                     predictions_file.write(json.dumps(record, ensure_ascii=False) + "\n")
-                progress.update(len(chunk))
+                progress.update(len(indices))
+
+    _sort_predictions_file(predictions_path)
 
     accuracy = num_correct / num_examples if num_examples else 0.0
     # Mean answer length is a cheap degeneration probe: this task's prompt asks for
     # "the exact answer only" and is scored by exact match, so an arm whose mean runs
-    # into the tens of words is ignoring the instruction — which shows up as a near-zero
+    # into the tens of tokens is ignoring the instruction — which shows up as a near-zero
     # accuracy AND as a multi-hour runtime, both from the same cause.
+    #
+    # Tokens are the primary unit because they are directly comparable to max_new_tokens,
+    # the budget this probe exists to detect a model running into; truncation_rate names
+    # that failure outright. Words are kept alongside for continuity with earlier runs.
     mean_prediction_words = total_words / num_examples if num_examples else 0.0
+    mean_prediction_tokens = total_tokens / num_examples if num_examples else 0.0
+    truncation_rate = num_truncated / num_examples if num_examples else 0.0
     summary = {
         "task": config.task,
         "model_id": config.model_id,
         "num_examples": num_examples,
         "num_correct": num_correct,
         "accuracy": accuracy,
+        "mean_prediction_tokens": mean_prediction_tokens,
+        "truncation_rate": truncation_rate,
         "mean_prediction_words": mean_prediction_words,
         "batch_size": config.batch_size,
+        "sort_by_length": config.sort_by_length,
         "max_new_tokens": config.max_new_tokens,
     }
 
     summary_path = output_dir / f"{config.task}_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     logger.info("Accuracy: %.4f (%d/%d)", accuracy, num_correct, num_examples)
-    logger.info("Mean prediction length: %.1f words", mean_prediction_words)
+    logger.info(
+        "Mean prediction length: %.1f tokens (%.1f words); %.1f%% hit the %d-token budget",
+        mean_prediction_tokens,
+        mean_prediction_words,
+        100 * truncation_rate,
+        config.max_new_tokens,
+    )
     logger.info("Predictions written to %s", predictions_path)
     logger.info("Summary written to %s", summary_path)
     return summary
+
+
+def _sort_predictions_file(path: Path) -> None:
+    """Rewrite the streamed predictions file in dataset order.
+
+    Generation runs in length-sorted order, so the streamed file comes out in that order
+    too. Restoring dataset order here keeps the artifact diffable against a run made under
+    a different `sort_by_length` — the ordering is an execution detail, not a result.
+    """
+    with path.open("r", encoding="utf-8") as fh:
+        records = [json.loads(line) for line in fh if line.strip()]
+    records.sort(key=lambda r: r["index"])
+    with path.open("w", encoding="utf-8") as fh:
+        for record in records:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")

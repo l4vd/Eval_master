@@ -217,6 +217,9 @@ def get_summarization_response(model, document, summary, instruction, backend="o
     return response
 
 
+SORT_ORDERS = ("desc", "asc", "none")
+
+
 def _resolve_batch_size(backend, generator):
     """Prompts per forward pass. Only the local HF judge batches; OpenAI stays serial."""
     if backend != "hf":
@@ -224,7 +227,31 @@ def _resolve_batch_size(backend, generator):
     return max(1, getattr(generator, "batch_size", 1))
 
 
-def evaluation_qa_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None):
+def _batch_order(pending, backend, generator, sort_by_length):
+    """Indices of `pending` in the order the judge should see them.
+
+    Sorting by judge-prompt token length groups similarly-sized prompts into one padded
+    forward pass, which is where this benchmark's wall clock actually goes: each split is
+    10,000 rows generating 16 tokens apiece, so the cost is dominated by the prompt — and in
+    file order a batch is padded to its single longest row. `summarization` carries whole
+    CNN/DM documents, so that padding is most of the compute there.
+
+    Descending (not ascending) puts the peak-memory batch FIRST, so a CUDA OOM surfaces in
+    the first minute rather than after an hour of successful work.
+
+    The caller has already drawn every ground truth in ascending index order, so this
+    reordering moves only WHEN a row is judged, never WHICH answer it is shown. Identity for
+    the OpenAI backend, which is serial and unbatched (see `_resolve_batch_size`).
+    """
+    order = list(range(len(pending)))
+    if backend != "hf" or sort_by_length == "none" or not pending:
+        return order
+    # The built request is the last element of every task's pending tuple.
+    lengths = generator.prompt_token_lengths([p[-1] for p in pending])
+    return sorted(order, key=lambda i: lengths[i], reverse=sort_by_length == "desc")
+
+
+def evaluation_qa_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None, sort_by_length="desc"):
     with open(file, 'r', encoding="utf-8") as f:
         data = []
         for line in f:
@@ -234,41 +261,49 @@ def evaluation_qa_dataset(model, file, instruction, output_path, backend="openai
         batch_size = _resolve_batch_size(backend, generator)
         correct = 0
         incorrect = 0
+
+        # Phase 1 — draw every item's ground truth and build its prompt, over the WHOLE
+        # split in ascending index order. Doing this up front (rather than per chunk) is
+        # what lets phase 1.5 reorder execution without disturbing the labels: random() is
+        # still called exactly once per index in ascending order, so the Yes/No assignment
+        # is identical to the unbatched loop for a given seed no matter how batches are cut.
+        pending = []
+        for i in range(n):
+            knowledge = data[i]["knowledge"]
+            question = data[i]["question"]
+            hallucinated_answer = data[i]["hallucinated_answer"]
+            right_answer = data[i]["right_answer"]
+
+            if random.random() > 0.5:
+                answer = hallucinated_answer
+                ground_truth = "Yes"
+            else:
+                answer = right_answer
+                ground_truth = "No"
+
+            pending.append((i, knowledge, question, answer, ground_truth,
+                            build_qa_request(question, answer, instruction)))
+
+        # Phase 1.5 — execution order (longest prompts first), see _batch_order.
+        order = _batch_order(pending, backend, generator, sort_by_length)
+
         for start in range(0, n, batch_size):
-            # Phase 1 — draw each item's ground truth and build its prompt. random()
-            # is still called exactly once per index in ascending order, so the Yes/No
-            # assignment is identical to the unbatched loop for a given seed.
-            pending = []
-            for i in range(start, min(start + batch_size, n)):
-                knowledge = data[i]["knowledge"]
-                question = data[i]["question"]
-                hallucinated_answer = data[i]["hallucinated_answer"]
-                right_answer = data[i]["right_answer"]
-
-                if random.random() > 0.5:
-                    answer = hallucinated_answer
-                    ground_truth = "Yes"
-                else:
-                    answer = right_answer
-                    ground_truth = "No"
-
-                pending.append((i, knowledge, question, answer, ground_truth,
-                                build_qa_request(question, answer, instruction)))
+            chunk = [pending[i] for i in order[start:min(start + batch_size, n)]]
 
             # Phase 2 — one padded forward pass for the whole chunk.
             if backend == "hf":
-                answers = generator.generate_many([request for *_, request in pending])
+                answers = generator.generate_many([request for *_, request in chunk])
             else:
                 answers = [get_qa_response(model, question, answer, instruction,
                                            backend=backend, generator=generator)
-                           for _, _, question, answer, _, _ in pending]
+                           for _, _, question, answer, _, _ in chunk]
 
             # Phase 3 — score and write, in input order.
-            for (i, knowledge, question, answer, ground_truth, _), ans in zip(pending, answers):
+            for (i, knowledge, question, answer, ground_truth, _), ans in zip(chunk, answers):
                 ans = ans.replace(".", "")
 
                 if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
-                    gen = {"knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": "failed!"}
+                    gen = {"index": i, "knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": "failed!"}
                     dump_jsonl(gen, output_path, append=True)
                     incorrect += 1
                     print('sample {} fails......'.format(i))
@@ -276,11 +311,11 @@ def evaluation_qa_dataset(model, file, instruction, output_path, backend="openai
                 elif "Yes" in ans:
                     if ans != "Yes":
                         ans = "Yes"
-                    gen = {"knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": ans}
+                    gen = {"index": i, "knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": ans}
                 elif "No" in ans:
                     if ans != "No":
                         ans = "No"
-                    gen = {"knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": ans}
+                    gen = {"index": i, "knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": ans}
                 else:
                     gen = None
                     incorrect += 1
@@ -300,7 +335,7 @@ def evaluation_qa_dataset(model, file, instruction, output_path, backend="openai
         return {"num_examples": n, "num_correct": correct, "num_incorrect": incorrect, "accuracy": accuracy}
 
 
-def evaluation_dialogue_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None):
+def evaluation_dialogue_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None, sort_by_length="desc"):
     with open(file, 'r', encoding="utf-8") as f:
         data = []
         for line in f:
@@ -310,39 +345,46 @@ def evaluation_dialogue_dataset(model, file, instruction, output_path, backend="
         batch_size = _resolve_batch_size(backend, generator)
         correct = 0
         incorrect = 0
+
+        # Phase 1 — draw ground truths and build prompts over the whole split, ascending
+        # index order (see evaluation_qa_dataset for why this must precede the reordering).
+        pending = []
+        for i in range(n):
+            knowledge = data[i]["knowledge"]
+            dialog = data[i]["dialogue_history"]
+            hallucinated_response = data[i]["hallucinated_response"]
+            right_response = data[i]["right_response"]
+
+            if random.random() > 0.5:
+                response = hallucinated_response
+                ground_truth = "Yes"
+            else:
+                response = right_response
+                ground_truth = "No"
+
+            pending.append((i, knowledge, dialog, response, ground_truth,
+                            build_dialogue_request(dialog, response, instruction)))
+
+        # Phase 1.5 — execution order (longest prompts first), see _batch_order.
+        order = _batch_order(pending, backend, generator, sort_by_length)
+
         for start in range(0, n, batch_size):
-            # Phase 1 — draw ground truths and build prompts (see evaluation_qa_dataset).
-            pending = []
-            for i in range(start, min(start + batch_size, n)):
-                knowledge = data[i]["knowledge"]
-                dialog = data[i]["dialogue_history"]
-                hallucinated_response = data[i]["hallucinated_response"]
-                right_response = data[i]["right_response"]
-
-                if random.random() > 0.5:
-                    response = hallucinated_response
-                    ground_truth = "Yes"
-                else:
-                    response = right_response
-                    ground_truth = "No"
-
-                pending.append((i, knowledge, dialog, response, ground_truth,
-                                build_dialogue_request(dialog, response, instruction)))
+            chunk = [pending[i] for i in order[start:min(start + batch_size, n)]]
 
             # Phase 2 — one padded forward pass for the whole chunk.
             if backend == "hf":
-                answers = generator.generate_many([request for *_, request in pending])
+                answers = generator.generate_many([request for *_, request in chunk])
             else:
                 answers = [get_dialogue_response(model, dialog, response, instruction,
                                                  backend=backend, generator=generator)
-                           for _, _, dialog, response, _, _ in pending]
+                           for _, _, dialog, response, _, _ in chunk]
 
             # Phase 3 — score and write, in input order.
-            for (i, knowledge, dialog, response, ground_truth, _), ans in zip(pending, answers):
+            for (i, knowledge, dialog, response, ground_truth, _), ans in zip(chunk, answers):
                 ans = ans.replace(".", "")
 
                 if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
-                    gen = {"knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": "failed!"}
+                    gen = {"index": i, "knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": "failed!"}
                     dump_jsonl(gen, output_path, append=True)
                     incorrect += 1
                     print('sample {} fails......'.format(i))
@@ -350,11 +392,11 @@ def evaluation_dialogue_dataset(model, file, instruction, output_path, backend="
                 elif "Yes" in ans:
                     if ans != "Yes":
                         ans = "Yes"
-                    gen = {"knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": ans}
+                    gen = {"index": i, "knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": ans}
                 elif "No" in ans:
                     if ans != "No":
                         ans = "No"
-                    gen = {"knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": ans}
+                    gen = {"index": i, "knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": ans}
                 else:
                     gen = None
                 assert (gen is not None)
@@ -372,7 +414,7 @@ def evaluation_dialogue_dataset(model, file, instruction, output_path, backend="
         return {"num_examples": n, "num_correct": correct, "num_incorrect": incorrect, "accuracy": accuracy}
 
 
-def evaluation_summarization_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None):
+def evaluation_summarization_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None, sort_by_length="desc"):
     with open(file, 'r', encoding="utf-8") as f:
         data = []
         for line in f:
@@ -382,40 +424,49 @@ def evaluation_summarization_dataset(model, file, instruction, output_path, back
         batch_size = _resolve_batch_size(backend, generator)
         correct = 0
         incorrect = 0
+
+        # Phase 1 — draw ground truths and build prompts over the whole split, ascending
+        # index order (see evaluation_qa_dataset for why this must precede the reordering).
+        # These documents are the longest prompts in HaluEval, so this is the split most
+        # likely to need a smaller --batch-size to stay inside GPU memory — and the one
+        # length-sorted batching helps most. Holding all n built prompts costs roughly the
+        # size of the documents again on top of `data`, which is already fully resident.
+        pending = []
+        for i in range(n):
+            document = data[i]["document"]
+            hallucinated_summary = data[i]["hallucinated_summary"]
+            right_summary = data[i]["right_summary"]
+
+            if random.random() > 0.5:
+                summary = hallucinated_summary
+                ground_truth = "Yes"
+            else:
+                summary = right_summary
+                ground_truth = "No"
+
+            pending.append((i, document, summary, ground_truth,
+                            build_summarization_request(document, summary, instruction)))
+
+        # Phase 1.5 — execution order (longest prompts first), see _batch_order.
+        order = _batch_order(pending, backend, generator, sort_by_length)
+
         for start in range(0, n, batch_size):
-            # Phase 1 — draw ground truths and build prompts (see evaluation_qa_dataset).
-            # These documents are the longest prompts in HaluEval, so this is the split
-            # most likely to need a smaller --batch-size to stay inside GPU memory.
-            pending = []
-            for i in range(start, min(start + batch_size, n)):
-                document = data[i]["document"]
-                hallucinated_summary = data[i]["hallucinated_summary"]
-                right_summary = data[i]["right_summary"]
-
-                if random.random() > 0.5:
-                    summary = hallucinated_summary
-                    ground_truth = "Yes"
-                else:
-                    summary = right_summary
-                    ground_truth = "No"
-
-                pending.append((i, document, summary, ground_truth,
-                                build_summarization_request(document, summary, instruction)))
+            chunk = [pending[i] for i in order[start:min(start + batch_size, n)]]
 
             # Phase 2 — one padded forward pass for the whole chunk.
             if backend == "hf":
-                answers = generator.generate_many([request for *_, request in pending])
+                answers = generator.generate_many([request for *_, request in chunk])
             else:
                 answers = [get_summarization_response(model, document, summary, instruction,
                                                       backend=backend, generator=generator)
-                           for _, document, summary, _, _ in pending]
+                           for _, document, summary, _, _ in chunk]
 
             # Phase 3 — score and write, in input order.
-            for (i, document, summary, ground_truth, _), ans in zip(pending, answers):
+            for (i, document, summary, ground_truth, _), ans in zip(chunk, answers):
                 ans = ans.replace(".", "")
 
                 if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
-                    gen = {"document": document, "summary": summary, "ground_truth": ground_truth, "judgement": "failed!"}
+                    gen = {"index": i, "document": document, "summary": summary, "ground_truth": ground_truth, "judgement": "failed!"}
                     dump_jsonl(gen, output_path, append=True)
                     incorrect += 1
                     print('sample {} fails......'.format(i))
@@ -423,11 +474,11 @@ def evaluation_summarization_dataset(model, file, instruction, output_path, back
                 elif "Yes" in ans:
                     if ans != "Yes":
                         ans = "Yes"
-                    gen = {"document": document, "summary": summary, "ground_truth": ground_truth, "judgement": ans}
+                    gen = {"index": i, "document": document, "summary": summary, "ground_truth": ground_truth, "judgement": ans}
                 elif "No" in ans:
                     if ans != "No":
                         ans = "No"
-                    gen = {"document": document, "summary": summary, "ground_truth": ground_truth, "judgement": ans}
+                    gen = {"index": i, "document": document, "summary": summary, "ground_truth": ground_truth, "judgement": ans}
                 else:
                     gen = None
                 assert (gen is not None)
@@ -483,6 +534,16 @@ if __name__ == '__main__':
                         help="Judge prompts per forward pass (--backend hf only). >1 is much "
                              "faster on a GPU; lower it if you hit CUDA OOM on summarization. "
                              "Keep it fixed across models you intend to compare.")
+    parser.add_argument("--sort-by-length", dest="sort_by_length", default="desc",
+                        choices=list(SORT_ORDERS),
+                        help="Order judge prompts by token length before batching "
+                             "(--backend hf only). The pipeline pads each batch to its own "
+                             "longest prompt, so grouping similar lengths together removes "
+                             "most of the padding waste — the biggest runtime lever on "
+                             "summarization. 'desc' runs the peak-memory batch first, so a "
+                             "CUDA OOM shows up immediately. Reordering changes batch "
+                             "composition, which can flip a greedy argmax tie; keep it FIXED "
+                             "across models you compare (it is recorded in summary.json).")
     parser.add_argument("--num-samples", dest="num_samples", type=int, default=None,
                         help="Evaluate only the first N examples (useful for smoke tests).")
     parser.add_argument("--output-dir", dest="output_dir", default=None,
@@ -531,7 +592,8 @@ if __name__ == '__main__':
 
     data = "../data/{}_data.json".format(args.task)
 
-    kwargs = dict(backend=backend, generator=generator, num_samples=args.num_samples)
+    kwargs = dict(backend=backend, generator=generator, num_samples=args.num_samples,
+                  sort_by_length=args.sort_by_length)
     if args.task == "qa":
         stats = evaluation_qa_dataset(model, data, instruction, output_path, **kwargs)
     elif args.task == "dialogue":
@@ -544,7 +606,8 @@ if __name__ == '__main__':
     # Persist the headline accuracy so the stored run is self-contained (the other
     # four benchmarks all write a summary; HaluEval previously only printed it).
     summary = {"task": args.task, "model": label, "backend": backend,
-               "batch_size": args.batch_size if backend == "hf" else 1}
+               "batch_size": args.batch_size if backend == "hf" else 1,
+               "sort_by_length": args.sort_by_length if backend == "hf" else "none"}
     summary.update(stats or {})
     summary_path = os.path.join(results_dir, "{}_{}_summary.json".format(args.task, label))
     with open(summary_path, 'w', encoding='utf-8') as f:

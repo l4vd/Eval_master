@@ -70,6 +70,29 @@ def _style_axes(ax) -> None:
     ax.set_axisbelow(True)
 
 
+def _legend_outside(ax) -> None:
+    """Place the legend to the RIGHT of the axes, never over the data.
+
+    matplotlib's default ``loc='best'`` minimizes overlap with the artists it can see, which
+    on a grouped bar chart routinely means parking the legend in the middle of the plot —
+    over the very bars being compared. Outside is the only placement that cannot do that.
+
+    Right rather than above/below: above collides with the axes title, below with the
+    (multi-line) category tick labels these figures use. ``arm_colors`` folds past 8 arms,
+    so a single right-hand column is never taller than the axes.
+
+    ``_save`` crops with ``bbox_inches="tight"``, which is what keeps an out-of-axes legend
+    from being cut off rather than merely shifted off-canvas.
+    """
+    ax.legend(
+        frameon=False,
+        fontsize=8,
+        loc="center left",
+        bbox_to_anchor=(1.01, 0.5),
+        borderaxespad=0.0,
+    )
+
+
 def _direction_note(higher_is_better: bool) -> str:
     return "higher is better" if higher_is_better else "lower is better"
 
@@ -123,7 +146,8 @@ def plot_benchmark(
     hib = next(iter(rs)).higher_is_better
     ax.set_title(f"{benchmark} — arms by primary metric ({_direction_note(hib)})", fontsize=10)
     _style_axes(ax)
-    ax.legend(frameon=False, fontsize=8, ncol=min(len(arms), 4))
+    ax.margins(y=0.12)  # headroom so CI whiskers don't run into the top spine
+    _legend_outside(ax)
     return _save(fig, outdir / f"{benchmark}.png")
 
 
@@ -165,7 +189,8 @@ def plot_tasks(
     hib = next(iter(rs)).higher_is_better
     ax.set_title(f"{benchmark} — {metric} by task ({_direction_note(hib)})", fontsize=10)
     _style_axes(ax)
-    ax.legend(frameon=False, fontsize=8, ncol=min(len(arms), 4))
+    ax.margins(y=0.12)  # headroom so CI whiskers don't run into the top spine
+    _legend_outside(ax)
     return _save(fig, outdir / f"{benchmark}_tasks.png")
 
 
@@ -294,7 +319,7 @@ def plot_paired_deltas(
         f"Wilcoxon p = {_fmt(p)} {stars}", fontsize=9,
     )
     _style_axes(ax)
-    ax.legend(frameon=False, fontsize=8)
+    _legend_outside(ax)
     safe = f"{comparison.arm}_vs_{comparison.reference}_{comparison.benchmark}_{comparison.task}_{comparison.metric}"
     safe = safe.replace("/", "_").replace(":", "_").replace("::", "_")
     return _save(fig, outdir / f"paired_{safe}.png")
@@ -398,9 +423,11 @@ def _save(fig, path: Path, *, tight: bool = True) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     if tight:
         fig.tight_layout()
-    fig.savefig(path, dpi=300) 
+    # bbox_inches="tight" grows the canvas to include artists placed OUTSIDE the axes —
+    # without it the right-hand legends from _legend_outside are cropped away.
+    fig.savefig(path, dpi=300, bbox_inches="tight")
     # also emit a vector PDF for the thesis appendix
-    fig.savefig(path.with_suffix(".pdf"))
+    fig.savefig(path.with_suffix(".pdf"), bbox_inches="tight")
     import matplotlib.pyplot as plt
 
     plt.close(fig)

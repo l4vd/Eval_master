@@ -54,6 +54,22 @@ def _check_local_path_exists(model_id: str, *, what: str) -> None:
         raise FileNotFoundError(f"{what} path does not exist: {model_id}")
 
 
+def _chat_template_ids(encoded):
+    """Normalize `apply_chat_template(tokenize=True)` output to a flat list of token ids.
+
+    The return type is stack-dependent: transformers 4.41 (the HPC pin) hands back a plain
+    list of ids, while 5.x returns a BatchEncoding. Taking `len()` of the latter yields the
+    number of KEYS — 2 — which is a silent, uniform "length" that would make every batch
+    look identical to the length sorter while still working correctly on the HPC stack.
+    """
+    if hasattr(encoded, "keys"):
+        encoded = encoded["input_ids"]
+    # A single conversation can come back either flat or wrapped in a batch dimension.
+    if encoded and isinstance(encoded[0], (list, tuple)):
+        encoded = encoded[0]
+    return encoded
+
+
 def _is_peft_adapter(model_path: str) -> bool:
     """True if `model_path` is a local directory holding a PEFT adapter checkpoint.
 
@@ -192,6 +208,39 @@ class HFChatGenerator:
     def prompt_format(self) -> str:
         """'chat_template' or 'concat' — recorded alongside results for provenance."""
         return "chat_template" if self._has_chat_template else "concat"
+
+    def prompt_token_lengths(self, requests: list[tuple[list[dict[str, str]], str]]) -> list[int]:
+        """Tokenized length of each judge prompt, rendered as `generate_many` renders it.
+
+        The sort key for length-bucketed batching, so it IS the quantity the pipeline pads
+        to — a proxy (characters, words) would mis-order rows whose text tokenizes densely.
+        Both branches below mirror `generate_many` line for line, INCLUDING the choice
+        between `messages` and `completion_prompt`; if that method's rendering changes, this
+        one must change with it or batches get bucketed on the wrong length.
+
+        Costs one CPU tokenizer pass over the split — seconds against a multi-hour GPU run.
+        """
+        if not requests:
+            return []
+
+        if not self._has_chat_template:
+            prompts = [completion_prompt for _, completion_prompt in requests]
+            encoded = self.tokenizer(prompts, add_special_tokens=False)["input_ids"]
+            return [len(ids) for ids in encoded]
+
+        # `apply_chat_template` is per-conversation, so this cannot be batched. The
+        # add_generation_prompt=True matches what TextGenerationPipeline applies internally
+        # when it is handed message lists.
+        return [
+            len(
+                _chat_template_ids(
+                    self.tokenizer.apply_chat_template(
+                        messages, tokenize=True, add_generation_prompt=True
+                    )
+                )
+            )
+            for messages, _ in requests
+        ]
 
     def generate(self, messages: list[dict[str, str]], completion_prompt: str) -> str:
         """Generate a judgement (ideally 'Yes'/'No') for one judge prompt.

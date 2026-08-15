@@ -17,6 +17,7 @@ import yaml
 SUPPORTED_TASKS = ("unanswerable", "inconsistent", "counterfactual")
 PHRASE_MATCH = "phrase_match"
 ANSWER_MATCH = "answer_match"
+SORT_ORDERS = ("desc", "asc", "none")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -61,6 +62,18 @@ class EvalConfig:
     device_map: str = "auto"
     dtype: str = "bfloat16"
     batch_size: int = 1
+    # Order in which examples are fed to the generator. "desc" groups similarly-long
+    # prompts into the same padded forward pass — the pipeline pads each batch to its own
+    # longest prompt, so file order (where length is effectively random) wastes most of the
+    # compute on padding. Descending rather than ascending puts the peak-memory batch FIRST,
+    # so a CUDA OOM surfaces in the first minute instead of at 90% completion.
+    sort_by_length: str = "desc"
+
+    def __post_init__(self) -> None:
+        if self.sort_by_length not in SORT_ORDERS:
+            raise ValueError(
+                f"Unknown sort_by_length: {self.sort_by_length!r}; choose from {SORT_ORDERS}"
+            )
 
     @property
     def active_valid_phrases(self) -> list[str]:

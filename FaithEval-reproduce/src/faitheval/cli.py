@@ -13,7 +13,7 @@ import argparse
 import logging
 from pathlib import Path
 
-from faitheval.config import SUPPORTED_TASKS, EvalConfig, load_task_config
+from faitheval.config import SORT_ORDERS, SUPPORTED_TASKS, EvalConfig, load_task_config
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_DIR = REPO_ROOT / "configs"
@@ -74,6 +74,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "you hit CUDA OOM. Keep it fixed across models you intend to compare.",
     )
     parser.add_argument(
+        "--sort-by-length",
+        dest="sort_by_length",
+        default="desc",
+        choices=list(SORT_ORDERS),
+        help="Order examples by prompt token length before batching. The pipeline pads each "
+        "batch to its own longest prompt, so grouping similar lengths together removes most "
+        "of the padding waste. 'desc' runs the peak-memory batch first, so a CUDA OOM shows "
+        "up immediately rather than at 90%% completion. Reordering changes batch composition, "
+        "which can flip a greedy argmax tie — keep this FIXED across models you compare "
+        "(it is recorded in the run summary).",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -112,6 +124,7 @@ def build_config(args: argparse.Namespace) -> EvalConfig:
         device_map=args.device_map,
         dtype=args.dtype,
         batch_size=args.batch_size,
+        sort_by_length=args.sort_by_length,
     )
 
 

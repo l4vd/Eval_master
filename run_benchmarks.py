@@ -191,6 +191,7 @@ def build_faitheval(cfg: DictConfig, out: Path) -> list[list[str]]:
             + ["--dtype", str(cfg.model.dtype), "--device-map", str(cfg.model.device_map)]
             + ["--split", str(b.split), "--max-new-tokens", str(b.max_new_tokens)]
             + _opt("--batch-size", b.get("batch_size", None))
+            + _opt("--sort-by-length", b.get("sort_by_length", None))
             + _opt("--num-samples", samples)
             + (["--strict-match"] if b.strict_match else [])
             + ["--output-dir", str(out / "faitheval")]
@@ -235,6 +236,7 @@ def build_halueval(cfg: DictConfig, out: Path) -> list[list[str]]:
             + ["--dtype", str(cfg.model.dtype), "--device-map", str(cfg.model.device_map)]
             + ["--max-new-tokens", str(b.max_new_tokens)]
             + _opt("--batch-size", b.get("batch_size", None))
+            + _opt("--sort-by-length", b.get("sort_by_length", None))
             + _opt("--num-samples", samples)
             + ["--output-dir", str(out / "halueval")]
             + list(b.extra_args)
