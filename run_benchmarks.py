@@ -234,7 +234,11 @@ def build_halueval(cfg: DictConfig, out: Path) -> list[list[str]]:
             + ["--model-path", str(cfg.model.id)]
             + _model_common_map(cfg)
             + ["--dtype", str(cfg.model.dtype), "--device-map", str(cfg.model.device_map)]
-            + ["--max-new-tokens", str(b.max_new_tokens)]
+            # max_new_tokens/seed are _opt so that leaving them null in the config hands
+            # the decision to evaluate.py's own defaults (per-prompt-format budget,
+            # upstream's unseeded draw) rather than stringifying "None" onto the CLI.
+            + _opt("--max-new-tokens", b.get("max_new_tokens", None))
+            + _opt("--seed", b.get("seed", None))
             + _opt("--batch-size", b.get("batch_size", None))
             + _opt("--sort-by-length", b.get("sort_by_length", None))
             + _opt("--num-samples", samples)

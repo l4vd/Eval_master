@@ -5,7 +5,20 @@ python: null
 tasks: [qa, dialogue, summarization]
 backend: hf                  # hf (local judge) | openai (reproduction, needs OPENAI_API_KEY)
 num_samples: null            # null => use the global `num_samples`
-max_new_tokens: 16           # a Yes/No answer is short
+# null => per-prompt-format default (see hf_local.DEFAULT_MAX_NEW_TOKENS): 16 for the
+# flat/completion format, 128 for the chat format. This mirrors the OpenAI endpoints the
+# original script used — ChatCompletion was called with NO max_tokens, so the published
+# protocol never truncated a judge mid-verdict, while Completion's own default is 16.
+# It matters because an unparseable judgement is scored as WRONG, so too small a budget
+# silently converts "verbose" into "incorrect". Recorded in summary.json.
+max_new_tokens: null
+# Seed for the coin flip choosing whether each row is shown its hallucinated or its
+# correct output. Upstream never seeds, so each run scores a different random 50/50
+# partition and two arms are compared on two different label draws. Pinning it makes
+# the comparison PAIRED without changing the metric's distribution. Keep it identical
+# across every model you compare; for error bars, sweep it (seed=42,43,...) and report
+# mean +/- std. null reproduces upstream's unseeded behaviour. Recorded in summary.json.
+seed: 42
 # Judge prompts per forward pass (backend: hf only). Each task is 10,000 rows and
 # only 16 tokens are generated per row, so at batch_size=1 this benchmark is almost
 # entirely per-call overhead — this is the single biggest runtime lever here.

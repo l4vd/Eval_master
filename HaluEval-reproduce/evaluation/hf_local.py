@@ -28,6 +28,25 @@ _DTYPE_BY_NAME = {
     "float32": torch.float32,
 }
 
+# Default generation budget per prompt format, chosen to match the OpenAI endpoint
+# that each format stands in for in the original script:
+#
+#   concat        -> openai.Completion.create(...), whose own default max_tokens is 16.
+#   chat_template -> openai.ChatCompletion.create(...), which the original calls with
+#                    ONLY temperature=0.0 — no max_tokens, so no cap at all.
+#
+# The cap is not cosmetic. `evaluate.py` scores a judgement it cannot parse as
+# INCORRECT, so a judge cut off mid-sentence ("Based on the given answers, it does not
+# contain hallucin|") is counted as a wrong answer rather than an unfinished one. A
+# 16-token cap on the chat format therefore penalises verbose-but-correct judges that
+# the published protocol would have scored fine — measured on this project's
+# checkpoints, going 16 -> 64 halved the unparseable rate on the same rows.
+#
+# 128 rather than literally uncapped: 10,000 rows x 3 splits makes an unbounded budget
+# impractical, and a judge that has not said Yes/No within 128 tokens is not truncated,
+# it is refusing. Raise it for reasoning models that think before answering.
+DEFAULT_MAX_NEW_TOKENS = {"chat_template": 128, "concat": 16}
+
 
 def _looks_like_local_path(model_id: str) -> bool:
     """Heuristically detect a local filesystem path (as opposed to a Hub repo id).
@@ -154,15 +173,18 @@ class HFChatGenerator:
         cache_dir: str | None = None,
         device_map: str = "auto",
         dtype: str = "bfloat16",
-        max_new_tokens: int = 16,  #NOTE: might need to change this for reasoning models.
+        max_new_tokens: int | None = None,
         batch_size: int = 1,
     ) -> None:
         if dtype not in _DTYPE_BY_NAME:
             raise ValueError(f"Unsupported dtype {dtype!r}; choose from {sorted(_DTYPE_BY_NAME)}")
         if batch_size < 1:
             raise ValueError(f"batch_size must be >= 1, got {batch_size}")
+        if max_new_tokens is not None and max_new_tokens < 1:
+            raise ValueError(f"max_new_tokens must be >= 1, got {max_new_tokens}")
 
-        self.max_new_tokens = max_new_tokens
+        # Resolved below, once the tokenizer tells us which prompt format applies.
+        self._requested_max_new_tokens = max_new_tokens
         self.batch_size = batch_size
 
         logger.info("Loading judge model %s (dtype=%s, device_map=%s)", model_id, dtype, device_map)
@@ -195,6 +217,19 @@ class HFChatGenerator:
                 "falling back to plain concatenation of the message contents.",
                 resolved_tokenizer_id,
             )
+
+        # The generation budget depends on which prompt format we just settled on,
+        # so it can only be resolved here (see DEFAULT_MAX_NEW_TOKENS).
+        self.max_new_tokens = (
+            self._requested_max_new_tokens
+            if self._requested_max_new_tokens is not None
+            else DEFAULT_MAX_NEW_TOKENS[self.prompt_format]
+        )
+        logger.info(
+            "Judge prompt format: %s; max_new_tokens=%d%s",
+            self.prompt_format, self.max_new_tokens,
+            "" if self._requested_max_new_tokens is not None else " (default for this format)",
+        )
 
         self._generator = pipeline(
             "text-generation",

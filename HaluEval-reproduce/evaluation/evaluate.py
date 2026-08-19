@@ -220,6 +220,91 @@ def get_summarization_response(model, document, summary, instruction, backend="o
 SORT_ORDERS = ("desc", "asc", "none")
 
 
+class _Tally:
+    """Row-level bookkeeping shared by the three tasks.
+
+    `correct`, `incorrect` and `accuracy` are produced EXACTLY as the original
+    HaluEval script produces them: a row whose judgement could not be parsed counts
+    as incorrect and stays in the denominator. Do not "fix" that here — it is the
+    published protocol, and changing it would put this fork's numbers on a different
+    scale from the paper's.
+
+    Everything else on this class is additional reporting derived from the same
+    judgements, so it costs nothing and changes no score. It exists because
+    `accuracy` alone cannot distinguish the three ways a judge fails:
+
+      - it judges wrongly            -> accuracy drops, `format_compliance` stays 1.0
+      - it never emits a verdict     -> accuracy drops, `format_compliance` drops
+      - it emits one constant answer -> accuracy sits near the label base rate,
+                                        while `tpr` or `tnr` is 0.0
+
+    The third case is the dangerous one: a judge that answers "No" to everything
+    scores ~0.50 and looks merely mediocre.
+    """
+
+    def __init__(self):
+        self.correct = 0
+        self.incorrect = 0
+        self.failed = 0
+        self.judged_yes = 0
+        self.gt_total = {"Yes": 0, "No": 0}
+        self.gt_correct = {"Yes": 0, "No": 0}
+
+    def record_failure(self, ground_truth):
+        """An unparseable judgement: incorrect, exactly as upstream counts it."""
+        self.gt_total[ground_truth] += 1
+        self.failed += 1
+        self.incorrect += 1
+
+    def record(self, ground_truth, judgement):
+        """A parsed "Yes"/"No" judgement."""
+        self.gt_total[ground_truth] += 1
+        if judgement == "Yes":
+            self.judged_yes += 1
+        if ground_truth == judgement:
+            self.correct += 1
+            self.gt_correct[ground_truth] += 1
+        else:
+            self.incorrect += 1
+
+    def stats(self, n):
+        parsed = n - self.failed
+        return {
+            # --- the published metric, unchanged ---
+            "num_examples": n,
+            "num_correct": self.correct,
+            "num_incorrect": self.incorrect,
+            "accuracy": self.correct / n if n else 0.0,
+            # --- diagnostics (do not affect the above) ---
+            "num_failed": self.failed,
+            "format_compliance": parsed / n if n else 0.0,
+            "num_ground_truth_yes": self.gt_total["Yes"],
+            "num_ground_truth_no": self.gt_total["No"],
+            # Recall on each class. A constant judge pins one of these to 0.0.
+            "tpr": _ratio(self.gt_correct["Yes"], self.gt_total["Yes"]),
+            "tnr": _ratio(self.gt_correct["No"], self.gt_total["No"]),
+            # Share of PARSED rows judged "Yes" — 0.0 or 1.0 means degenerate.
+            "judged_yes_rate": _ratio(self.judged_yes, parsed),
+        }
+
+
+def _ratio(numerator, denominator):
+    return numerator / denominator if denominator else 0.0
+
+
+def _seed_labels(seed):
+    """Pin the ground-truth coin flips (see REPRODUCIBILITY.md).
+
+    Upstream never seeds, so every run scores a different random 50/50 partition of
+    "shown the hallucinated output vs. the correct one" and two arms are compared
+    against two different label draws. Seeding does not change the *distribution* of
+    the metric — the published number is itself one draw from it — it just makes the
+    draw reproducible and makes arms paired. `None` keeps the upstream behaviour.
+    """
+    if seed is not None:
+        random.seed(seed)
+
+
 def _resolve_batch_size(backend, generator):
     """Prompts per forward pass. Only the local HF judge batches; OpenAI stays serial."""
     if backend != "hf":
@@ -251,7 +336,8 @@ def _batch_order(pending, backend, generator, sort_by_length):
     return sorted(order, key=lambda i: lengths[i], reverse=sort_by_length == "desc")
 
 
-def evaluation_qa_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None, sort_by_length="desc"):
+def evaluation_qa_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None, sort_by_length="desc", seed=None):
+    _seed_labels(seed)
     with open(file, 'r', encoding="utf-8") as f:
         data = []
         for line in f:
@@ -259,8 +345,7 @@ def evaluation_qa_dataset(model, file, instruction, output_path, backend="openai
 
         n = len(data) if num_samples is None else min(num_samples, len(data))
         batch_size = _resolve_batch_size(backend, generator)
-        correct = 0
-        incorrect = 0
+        tally = _Tally()
 
         # Phase 1 — draw every item's ground truth and build its prompt, over the WHOLE
         # split in ascending index order. Doing this up front (rather than per chunk) is
@@ -298,44 +383,43 @@ def evaluation_qa_dataset(model, file, instruction, output_path, backend="openai
                                            backend=backend, generator=generator)
                            for _, _, question, answer, _, _ in chunk]
 
-            # Phase 3 — score and write, in input order.
-            for (i, knowledge, question, answer, ground_truth, _), ans in zip(chunk, answers):
-                ans = ans.replace(".", "")
+            # Phase 3 — score and write, in execution order (each row carries its `index`).
+            for (i, knowledge, question, answer, ground_truth, _), raw in zip(chunk, answers):
+                ans = raw.replace(".", "")
 
                 if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
-                    gen = {"index": i, "knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": "failed!"}
+                    gen = {"index": i, "knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": "failed!", "raw_judgement": raw}
                     dump_jsonl(gen, output_path, append=True)
-                    incorrect += 1
+                    tally.record_failure(ground_truth)
                     print('sample {} fails......'.format(i))
                     continue
                 elif "Yes" in ans:
                     if ans != "Yes":
                         ans = "Yes"
-                    gen = {"index": i, "knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": ans}
+                    gen = {"index": i, "knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": ans, "raw_judgement": raw}
                 elif "No" in ans:
                     if ans != "No":
                         ans = "No"
-                    gen = {"index": i, "knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": ans}
+                    gen = {"index": i, "knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": ans, "raw_judgement": raw}
                 else:
                     gen = None
-                    incorrect += 1
 
                 assert(gen is not None)
 
-                if ground_truth == ans:
-                    correct += 1
-                else:
-                    incorrect += 1
+                tally.record(ground_truth, ans)
 
                 print('sample {} success......'.format(i))
                 dump_jsonl(gen, output_path, append=True)
 
-        accuracy = correct / n if n else 0.0
-        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(correct, incorrect, accuracy))
-        return {"num_examples": n, "num_correct": correct, "num_incorrect": incorrect, "accuracy": accuracy}
+        stats = tally.stats(n)
+        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(
+            tally.correct, tally.incorrect, stats["accuracy"]))
+        _print_diagnostics(stats)
+        return stats
 
 
-def evaluation_dialogue_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None, sort_by_length="desc"):
+def evaluation_dialogue_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None, sort_by_length="desc", seed=None):
+    _seed_labels(seed)
     with open(file, 'r', encoding="utf-8") as f:
         data = []
         for line in f:
@@ -343,8 +427,7 @@ def evaluation_dialogue_dataset(model, file, instruction, output_path, backend="
 
         n = len(data) if num_samples is None else min(num_samples, len(data))
         batch_size = _resolve_batch_size(backend, generator)
-        correct = 0
-        incorrect = 0
+        tally = _Tally()
 
         # Phase 1 — draw ground truths and build prompts over the whole split, ascending
         # index order (see evaluation_qa_dataset for why this must precede the reordering).
@@ -379,42 +462,42 @@ def evaluation_dialogue_dataset(model, file, instruction, output_path, backend="
                                                  backend=backend, generator=generator)
                            for _, _, dialog, response, _, _ in chunk]
 
-            # Phase 3 — score and write, in input order.
-            for (i, knowledge, dialog, response, ground_truth, _), ans in zip(chunk, answers):
-                ans = ans.replace(".", "")
+            # Phase 3 — score and write, in execution order (each row carries its `index`).
+            for (i, knowledge, dialog, response, ground_truth, _), raw in zip(chunk, answers):
+                ans = raw.replace(".", "")
 
                 if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
-                    gen = {"index": i, "knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": "failed!"}
+                    gen = {"index": i, "knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": "failed!", "raw_judgement": raw}
                     dump_jsonl(gen, output_path, append=True)
-                    incorrect += 1
+                    tally.record_failure(ground_truth)
                     print('sample {} fails......'.format(i))
                     continue
                 elif "Yes" in ans:
                     if ans != "Yes":
                         ans = "Yes"
-                    gen = {"index": i, "knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": ans}
+                    gen = {"index": i, "knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": ans, "raw_judgement": raw}
                 elif "No" in ans:
                     if ans != "No":
                         ans = "No"
-                    gen = {"index": i, "knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": ans}
+                    gen = {"index": i, "knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": ans, "raw_judgement": raw}
                 else:
                     gen = None
                 assert (gen is not None)
 
-                if ground_truth == ans:
-                    correct += 1
-                else:
-                    incorrect += 1
+                tally.record(ground_truth, ans)
 
                 print('sample {} success......'.format(i))
                 dump_jsonl(gen, output_path, append=True)
 
-        accuracy = correct / n if n else 0.0
-        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(correct, incorrect, accuracy))
-        return {"num_examples": n, "num_correct": correct, "num_incorrect": incorrect, "accuracy": accuracy}
+        stats = tally.stats(n)
+        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(
+            tally.correct, tally.incorrect, stats["accuracy"]))
+        _print_diagnostics(stats)
+        return stats
 
 
-def evaluation_summarization_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None, sort_by_length="desc"):
+def evaluation_summarization_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None, sort_by_length="desc", seed=None):
+    _seed_labels(seed)
     with open(file, 'r', encoding="utf-8") as f:
         data = []
         for line in f:
@@ -422,8 +505,7 @@ def evaluation_summarization_dataset(model, file, instruction, output_path, back
 
         n = len(data) if num_samples is None else min(num_samples, len(data))
         batch_size = _resolve_batch_size(backend, generator)
-        correct = 0
-        incorrect = 0
+        tally = _Tally()
 
         # Phase 1 — draw ground truths and build prompts over the whole split, ascending
         # index order (see evaluation_qa_dataset for why this must precede the reordering).
@@ -461,39 +543,68 @@ def evaluation_summarization_dataset(model, file, instruction, output_path, back
                                                       backend=backend, generator=generator)
                            for _, document, summary, _, _ in chunk]
 
-            # Phase 3 — score and write, in input order.
-            for (i, document, summary, ground_truth, _), ans in zip(chunk, answers):
-                ans = ans.replace(".", "")
+            # Phase 3 — score and write, in execution order (each row carries its `index`).
+            for (i, document, summary, ground_truth, _), raw in zip(chunk, answers):
+                ans = raw.replace(".", "")
 
                 if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
-                    gen = {"index": i, "document": document, "summary": summary, "ground_truth": ground_truth, "judgement": "failed!"}
+                    gen = {"index": i, "document": document, "summary": summary, "ground_truth": ground_truth, "judgement": "failed!", "raw_judgement": raw}
                     dump_jsonl(gen, output_path, append=True)
-                    incorrect += 1
+                    tally.record_failure(ground_truth)
                     print('sample {} fails......'.format(i))
                     continue
                 elif "Yes" in ans:
                     if ans != "Yes":
                         ans = "Yes"
-                    gen = {"index": i, "document": document, "summary": summary, "ground_truth": ground_truth, "judgement": ans}
+                    gen = {"index": i, "document": document, "summary": summary, "ground_truth": ground_truth, "judgement": ans, "raw_judgement": raw}
                 elif "No" in ans:
                     if ans != "No":
                         ans = "No"
-                    gen = {"index": i, "document": document, "summary": summary, "ground_truth": ground_truth, "judgement": ans}
+                    gen = {"index": i, "document": document, "summary": summary, "ground_truth": ground_truth, "judgement": ans, "raw_judgement": raw}
                 else:
                     gen = None
                 assert (gen is not None)
 
-                if ground_truth == ans:
-                    correct += 1
-                else:
-                    incorrect += 1
+                tally.record(ground_truth, ans)
 
                 print('sample {} success......'.format(i))
                 dump_jsonl(gen, output_path, append=True)
 
-        accuracy = correct / n if n else 0.0
-        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(correct, incorrect, accuracy))
-        return {"num_examples": n, "num_correct": correct, "num_incorrect": incorrect, "accuracy": accuracy}
+        stats = tally.stats(n)
+        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(
+            tally.correct, tally.incorrect, stats["accuracy"]))
+        _print_diagnostics(stats)
+        return stats
+
+
+def _run_label(model_path):
+    """A filename-safe label for a `--model-path`, which is usually a long local path.
+
+    Slashes have always been flattened to underscores; the rest of the reserved set
+    matters on Windows, where a drive letter's ":" survives into the filename and NTFS
+    reads `qa_c:_Users_...json` as an alternate data stream on a file called `qa_c` —
+    the run then completes and reports success while writing a 0-byte results file.
+    Linux paths contain none of these characters, so artifact names on the cluster (and
+    their comparability with earlier runs) are unchanged.
+    """
+    label = model_path.replace("/", "_").replace("\\", "_")
+    for reserved in ':*?"<>|':
+        label = label.replace(reserved, "_")
+    return label
+
+
+def _print_diagnostics(stats):
+    """One line that says WHY the accuracy above came out the way it did.
+
+    Printed next to the headline number because the three failure modes are
+    indistinguishable from accuracy alone (see `_Tally`).
+    """
+    print('  format compliance: {}/{} ({:.1%} parsed, {} failed)'.format(
+        stats["num_examples"] - stats["num_failed"], stats["num_examples"],
+        stats["format_compliance"], stats["num_failed"]))
+    print('  TPR (hallucination caught): {:.3f} | TNR (correct output cleared): {:.3f} '
+          '| judged "Yes" on {:.1%} of parsed rows'.format(
+              stats["tpr"], stats["tnr"], stats["judged_yes_rate"]))
 
 
 def dump_jsonl(data, output_path, append=False):
@@ -528,8 +639,15 @@ if __name__ == '__main__':
                         help="dtype for the local HF judge model.")
     parser.add_argument("--device-map", dest="device_map", default="auto",
                         help="device_map passed to from_pretrained for the HF judge.")
-    parser.add_argument("--max-new-tokens", dest="max_new_tokens", type=int, default=16,
-                        help="Max new tokens for the HF judge (a Yes/No answer is short).")
+    parser.add_argument("--max-new-tokens", dest="max_new_tokens", type=int, default=None,
+                        help="Max new tokens for the HF judge. Default (unset) picks the value "
+                             "matching the OpenAI endpoint each prompt format stands in for: 16 "
+                             "for the flat/completion format (openai.Completion's own default) "
+                             "and 128 for the chat format (openai.ChatCompletion was called "
+                             "without a cap, so a verbose-but-valid judgement was never "
+                             "truncated). Too small a budget truncates a judge mid-verdict and "
+                             "the row is then scored as 'failed!', i.e. WRONG — see hf_local's "
+                             "DEFAULT_MAX_NEW_TOKENS.")
     parser.add_argument("--batch-size", dest="batch_size", type=int, default=1,
                         help="Judge prompts per forward pass (--backend hf only). >1 is much "
                              "faster on a GPU; lower it if you hit CUDA OOM on summarization. "
@@ -545,7 +663,16 @@ if __name__ == '__main__':
                              "composition, which can flip a greedy argmax tie; keep it FIXED "
                              "across models you compare (it is recorded in summary.json).")
     parser.add_argument("--num-samples", dest="num_samples", type=int, default=None,
-                        help="Evaluate only the first N examples (useful for smoke tests).")
+                        help="Evaluate only the first N examples (useful for smoke tests). Leave "
+                             "unset for a run comparable to the published numbers, which score "
+                             "the whole 10,000-row split.")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Seed for the ground-truth coin flip that decides whether each row "
+                             "is shown its hallucinated or its correct output. Unset reproduces "
+                             "upstream's unseeded behaviour. Setting it does not change the "
+                             "metric's distribution, but it makes runs reproducible and makes "
+                             "compared models PAIRED (same label draw). Use the same seed for "
+                             "every arm you compare; it is recorded in summary.json.")
     parser.add_argument("--output-dir", dest="output_dir", default=None,
                         help="Directory for the per-sample results and summary JSON. Defaults to the "
                              "in-repo '<task>/' folder (legacy behaviour) when unset.")
@@ -574,7 +701,7 @@ if __name__ == '__main__':
     instruction = f.read()
 
     model = args.model
-    label = args.model_path.replace("/", "_").replace("\\", "_") if (backend == "hf" and args.model_path) else args.model
+    label = _run_label(args.model_path) if (backend == "hf" and args.model_path) else args.model
 
     # Where the per-sample results (and summary) are written. With --output-dir the
     # artifacts land in the run's unified output tree (alongside the other
@@ -593,7 +720,7 @@ if __name__ == '__main__':
     data = "../data/{}_data.json".format(args.task)
 
     kwargs = dict(backend=backend, generator=generator, num_samples=args.num_samples,
-                  sort_by_length=args.sort_by_length)
+                  sort_by_length=args.sort_by_length, seed=args.seed)
     if args.task == "qa":
         stats = evaluation_qa_dataset(model, data, instruction, output_path, **kwargs)
     elif args.task == "dialogue":
@@ -605,9 +732,15 @@ if __name__ == '__main__':
 
     # Persist the headline accuracy so the stored run is self-contained (the other
     # four benchmarks all write a summary; HaluEval previously only printed it).
+    # Every setting that can move the number is recorded alongside it, so two
+    # summaries can be checked for comparability without digging up the launch command.
     summary = {"task": args.task, "model": label, "backend": backend,
                "batch_size": args.batch_size if backend == "hf" else 1,
-               "sort_by_length": args.sort_by_length if backend == "hf" else "none"}
+               "sort_by_length": args.sort_by_length if backend == "hf" else "none",
+               "seed": args.seed,
+               "num_samples_requested": args.num_samples,
+               "max_new_tokens": generator.max_new_tokens if generator is not None else None,
+               "prompt_format": generator.prompt_format if generator is not None else "openai"}
     summary.update(stats or {})
     summary_path = os.path.join(results_dir, "{}_{}_summary.json".format(args.task, label))
     with open(summary_path, 'w', encoding='utf-8') as f:

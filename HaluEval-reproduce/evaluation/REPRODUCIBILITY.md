@@ -92,3 +92,37 @@ methods section that the original HaluEval script relies on unseeded random
 sampling — this is the motivation for the change. Option 1 (seeding) is an
 acceptable minimal fix if reproducing the original per-example sampling
 protocol as closely as possible is a priority.
+
+## What this fork actually does
+
+**Option 1, plus the diagnostics option 2 was wanted for.** The sampling design is
+kept — it is the published protocol, and staying on it is what keeps these numbers
+comparable to the paper's — but everything that made the design hard to interpret
+has been instrumented.
+
+- `--seed` (launcher: `halueval.seed`, default `42`) pins the label draw. Unset
+  reproduces upstream's unseeded behaviour. The draw happens once per row in
+  ascending index order before any batching or reordering, so the same seed yields
+  the same labels regardless of `batch_size` / `sort_by_length`
+  (`tests/test_evaluate_ordering.py`).
+- **TPR and TNR are reported anyway**, without paying option 2's 2n judge calls.
+  Option 2's headline argument was that a constant "Yes" judge scores ~50% and
+  looks unremarkable under the blended metric; per-class recall on the sampled
+  half exposes exactly that, just on half the sample. This turned out to matter
+  immediately: the checkpoints evaluated here answer `"No"` to *every* row.
+- `format_compliance` / `num_failed` separate "judged wrongly" from "never emitted
+  a verdict". Upstream scores an unparseable judgement as **incorrect**, which is
+  reproduced faithfully — but it means accuracy silently mixes in a judge's
+  inability to follow the output format, and for small instruction-tuned models
+  that term can dominate.
+- Each row stores the judge's `raw_judgement`, so a finished run can be re-scored
+  offline under a different parser (`evaluation/score_results.py`) without
+  re-running generation.
+
+For error bars, option 3 is now a one-liner — sweep the seed and report mean ± std:
+
+```
+./run_all.sh --multirun run='[halueval]' halueval.seed=42,43,44,45,46
+```
+
+Use the same seed set for every arm so the comparison stays paired.

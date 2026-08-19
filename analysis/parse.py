@@ -27,6 +27,13 @@ from analysis.model import MetricRecord
 _HIGHER_IS_BETTER: dict[tuple[str, str], bool] = {
     ("faitheval", "accuracy"): True,
     ("halueval", "accuracy"): True,
+    ("halueval", "format_compliance"): True,
+    ("halueval", "tpr"): True,
+    ("halueval", "tnr"): True,
+    # judged_yes_rate is diagnostic, not directional: 0.0 and 1.0 are both degenerate
+    # and ~0.5 is healthy. It gets the default direction only because the table needs
+    # one; never rank on it.
+    ("halueval", "judged_yes_rate"): True,
     ("ragtruth", "hallucination_rate"): False,   # the one inverted metric
     ("ragtruth", "gold_precision"): True,
     ("ragtruth", "gold_recall"): True,
@@ -94,10 +101,17 @@ def parse_faitheval(
     return records
 
 
+# Diagnostics HaluEval writes next to its accuracy. None is primary — they explain a
+# headline number rather than competing with it — but they must reach the analysis
+# layer, because `accuracy` alone cannot tell "judged wrongly" from "never emitted a
+# verdict" from "answered one constant label". Absent on runs predating them.
+_HALUEVAL_DIAGNOSTICS = ("format_compliance", "tpr", "tnr", "judged_yes_rate")
+
+
 def parse_halueval(
     bench_dir: Path, arm: str, seed: int | None, is_primary: PrimaryPredicate
 ) -> list[MetricRecord]:
-    """One flat ``<task>_<label>_summary.json`` per task; key ``accuracy``."""
+    """One flat ``<task>_<label>_summary.json`` per task; key ``accuracy`` (+ diagnostics)."""
     records: list[MetricRecord] = []
     accs: list[float] = []
     for path in sorted(bench_dir.glob("*_summary.json")):
@@ -111,6 +125,13 @@ def parse_halueval(
             _mk(arm, seed, "halueval", task, "accuracy", acc,
                 None, data.get("num_examples"), is_primary)
         )
+        for metric in _HALUEVAL_DIAGNOSTICS:
+            value = _coerce_float(data.get(metric))
+            if value is not None:
+                records.append(
+                    _mk(arm, seed, "halueval", task, metric, value,
+                        None, data.get("num_examples"), is_primary)
+                )
     _append_task_mean(records, arm, seed, "halueval", "accuracy", accs, is_primary)
     return records
 
