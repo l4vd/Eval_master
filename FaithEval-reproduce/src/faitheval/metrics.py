@@ -29,6 +29,16 @@ def phrase_match(prediction: str, valid_phrases: Iterable[str]) -> bool:
     Used for the unanswerable and inconsistent tasks, where correctness is
     defined by the model naming the right *category* of context issue rather
     than reproducing an exact reference string.
+
+    **This is a substring test, not a word match, and it is therefore biased upward.**
+    ``"not"`` — a `valid_phrase` for the unanswerable task — matches inside *notable*,
+    *nothing*, *cannot* and *another*, so answers that never refused still score as
+    correct. The bias is kept deliberately: it is FaithEval's own scoring rule, and
+    switching to word-boundary matching would move this fork's accuracy away from both
+    the published numbers and any run already recorded in this project. Treat
+    `phrase_match` accuracies as an upper bound, and prefer `--strict-match` (which
+    narrows each task to a single unambiguous phrase) when the absolute level matters
+    rather than the relative ordering of arms.
     """
     normalized = normalize_answer(prediction)
     return any(phrase in normalized for phrase in valid_phrases)

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
-from analysis.cli import main
 from analysis import fixtures
+from analysis.cli import main
 
 
 def _write_arm(tmp_path, arm, seed_to_acc, **extra):

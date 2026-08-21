@@ -207,8 +207,8 @@ def _write_run_metadata(job: CheckpointEvalJob) -> None:
 def run_evaluations(
     jobs: list[CheckpointEvalJob], *, dry_run: bool = False, continue_on_error: bool = True,
     resume: bool = False,
-) -> list[CheckpointEvalJob]:
-    """Execute each eval job in turn; returns the jobs that were run (or planned).
+) -> list[int | None]:
+    """Execute each eval job in turn; returns the seeds that FAILED (empty = all fine).
 
     Each job's ``out_dir`` is created and stamped with ``run_metadata.json`` *before* the
     launcher runs, so a crash mid-benchmark still leaves a discoverable, seed-tagged dir.
@@ -218,6 +218,11 @@ def run_evaluations(
     With ``resume``, a seed whose every requested benchmark already wrote a summary is
     skipped. Nothing here is checkpointed *within* a seed, so an ensemble truncated by a
     walltime kill otherwise re-runs the seeds it already paid for from scratch.
+
+    The failure list is the return value (rather than the jobs, which the caller already
+    holds) because it is what the exit code must be derived from: an ensemble where 3 of 5
+    seeds died used to print the failures and then exit 0, so the caller aggregated a
+    2-seed ensemble believing it had 5.
     """
     failures: list[int | None] = []
     for job in jobs:
@@ -241,9 +246,9 @@ def run_evaluations(
             if not continue_on_error:
                 raise SystemExit(proc.returncode)
     if failures and not dry_run:
-        print(f"\n!! {len(failures)} seed(s) failed: {failures} "
+        print(f"\n!! {len(failures)} of {len(jobs)} seed(s) failed: {failures} "
               f"(continue_on_error kept the run going)")
-    return jobs
+    return failures
 
 
 def _run_analysis(
@@ -302,6 +307,10 @@ def main(argv: list[str] | None = None) -> int:
     # --analyze group: chain straight into analysis.cli on the produced outputs.
     ap.add_argument("--analyze", action="store_true",
                     help="After evaluating, run analysis.cli on the produced ensemble.")
+    ap.add_argument("--analyze-partial", action="store_true",
+                    help="Allow --analyze even when some seeds failed. Off by default: the "
+                         "across-seed statistics would otherwise silently describe fewer "
+                         "seeds than the run asked for.")
     ap.add_argument("--name", default="dpo",
                     help="Arm name for the produced ensemble when --analyze (default: dpo).")
     ap.add_argument("--arm", action="append", default=None, metavar="NAME=SPEC",
@@ -334,13 +343,27 @@ def main(argv: list[str] | None = None) -> int:
         raise SystemExit(f"No checkpoints found under: {args.checkpoints}")
 
     print(f"==> {len(jobs)} checkpoint(s) to evaluate -> {args.out}")
-    run_evaluations(jobs, dry_run=args.dry_run, continue_on_error=not args.stop_on_error,
-                    resume=args.resume)
+    failures = run_evaluations(
+        jobs, dry_run=args.dry_run, continue_on_error=not args.stop_on_error,
+        resume=args.resume,
+    )
 
     if args.dry_run:
         return 0
 
     if args.analyze:
+        # Analysing a partial ensemble as if it were complete is the silent-wrong-number
+        # case this whole module exists to avoid: the missing seeds simply do not appear,
+        # so the arm quietly has fewer seeds than it claims to. Make it an explicit choice.
+        if failures and not args.analyze_partial:
+            print(
+                f"\n!! Refusing to --analyze: {len(failures)} of {len(jobs)} seed(s) failed "
+                f"({failures}), so the ensemble is incomplete and its across-seed statistics "
+                "would silently describe fewer seeds than intended. Re-run the failed seeds "
+                "(--resume skips the ones that finished), or pass --analyze-partial to "
+                "analyse what did complete."
+            )
+            return 1
         analysis_out = Path(args.analysis_out) if args.analysis_out else Path(args.out) / "analysis"
         # The --benchmarks restriction applied to the eval step above must also apply
         # here, or an --arm pointed at a differently-scoped eval dir (e.g. a full
@@ -357,17 +380,20 @@ def main(argv: list[str] | None = None) -> int:
             passthrough.append("--allow-seed-mismatch")
         if args.rng_seed:
             passthrough += ["--rng-seed", str(args.rng_seed)]
-        return _run_analysis(
+        rc = _run_analysis(
             Path(args.out), name=args.name, extra_arms=args.arm or [],
             reference=args.reference, analysis_out=analysis_out,
             no_plot=args.no_plot, passthrough=passthrough,
         )
+        # A clean analysis over a knowingly-partial ensemble still exits non-zero: the
+        # caller asked for N seeds and got fewer.
+        return rc or (1 if failures else 0)
 
     print(f"\n==> Eval outputs under: {args.out}")
     print("    Next: analyse them, e.g.")
     print(f"      ./run_analysis.sh --arm {args.name}='{args.out}/seed_*' "
           f"--arm base=<base_eval_dir> --reference base --out outputs/analysis")
-    return 0
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

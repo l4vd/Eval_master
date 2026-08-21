@@ -3,7 +3,6 @@
 import json
 
 import pytest
-
 from harness_eval.model import (
     _looks_like_local_path,
     build_model_args,

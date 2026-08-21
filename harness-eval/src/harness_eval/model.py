@@ -55,6 +55,37 @@ def _check_local_path_exists(model_id: str, *, what: str) -> None:
         raise FileNotFoundError(f"{what} path does not exist: {model_id}")
 
 
+def _is_hf_hub_offline() -> bool:
+    return os.environ.get("HF_HUB_OFFLINE") == "1" or os.environ.get("TRANSFORMERS_OFFLINE") == "1"
+
+
+def reraise_if_offline_cache_miss(model_id: str, exc: OSError) -> None:
+    """Turn huggingface_hub's offline-cache-miss `OSError` into an actionable one.
+
+    On this project's HPC setup (see README.md "Mirror / offline"), compute nodes
+    export `HF_HUB_OFFLINE=1`/`TRANSFORMERS_OFFLINE=1` and have no internet access, so
+    any Hub id not already pre-downloaded into the shared cache on a login node fails
+    with a generic connection/404-shaped error. Re-raise with the actual fix.
+
+    Public here (unlike the `_`-prefixed sibling copies) because this benchmark never
+    calls `from_pretrained` itself — lm_eval does the loading, so the guard is applied
+    around `simple_evaluate` in `evaluator.run_evaluation` instead.
+
+    Sibling copies live in `HaluEval-reproduce/evaluation/hf_local.py`,
+    `FaithEval-reproduce/src/faitheval/model.py`,
+    `RAGTruth-reproduce/src/ragtruth_eval/model.py` and
+    `TruthfulQA-reproduce/truthfulqa/hf_local.py`. Any fix here belongs in all five.
+    """
+    if _looks_like_local_path(model_id) or not _is_hf_hub_offline():
+        return
+    raise OSError(
+        f"'{model_id}' is not in the local Hugging Face cache and this node is offline "
+        "(HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE=1). Pre-download it on a node with internet "
+        f"access first, e.g.:\n    huggingface-cli download {model_id}\n"
+        "then re-run on the compute node. See the 'Mirror / offline' section in README.md."
+    ) from exc
+
+
 def _is_peft_adapter(model_path: str) -> bool:
     """True if `model_path` is a local directory holding a PEFT adapter checkpoint.
 

@@ -152,11 +152,60 @@ def test_continue_on_error_keeps_going(tmp_path, monkeypatch):
     _fake_launcher(monkeypatch, fail_seeds=[7])
     group = _write_ckpt_ensemble(tmp_path / "grp", [42, 7])
     out = tmp_path / "eval"
-    run_evaluations(plan_evaluations(str(group), out, benchmarks=["faitheval"]))
+    failures = run_evaluations(plan_evaluations(str(group), out, benchmarks=["faitheval"]))
     # The failing seed still leaves a discoverable, seed-tagged dir; the other completes.
     assert (out / "seed_42" / "faitheval").is_dir()
     assert (out / "seed_7" / "run_metadata.json").is_file()  # stamped before the launcher
     assert not (out / "seed_7" / "faitheval").exists()       # its benchmark never wrote
+    # ...and the failure is reported back, not swallowed.
+    assert failures == [7]
+
+
+# --- failures must reach the exit code ------------------------------------------
+
+def test_main_exits_non_zero_when_a_seed_fails(tmp_path, monkeypatch):
+    """A partial ensemble must not report success — the caller reads the exit code."""
+    _fake_launcher(monkeypatch, fail_seeds=[7])
+    group = _write_ckpt_ensemble(tmp_path / "grp", [42, 7])
+    out = tmp_path / "eval"
+    rc = eval_checkpoints.main(
+        ["--checkpoints", str(group), "--out", str(out), "--benchmarks", "faitheval"]
+    )
+    assert rc == 1
+
+
+def test_main_exits_zero_when_every_seed_succeeds(tmp_path, monkeypatch):
+    _fake_launcher(monkeypatch)
+    group = _write_ckpt_ensemble(tmp_path / "grp", [42, 7])
+    out = tmp_path / "eval"
+    rc = eval_checkpoints.main(
+        ["--checkpoints", str(group), "--out", str(out), "--benchmarks", "faitheval"]
+    )
+    assert rc == 0
+
+
+def test_analyze_refuses_a_partial_ensemble(tmp_path, monkeypatch):
+    """--analyze on an incomplete ensemble is refused rather than quietly under-counting."""
+    _fake_launcher(monkeypatch, fail_seeds=[7])
+    called = []
+    monkeypatch.setattr(eval_checkpoints, "_run_analysis", lambda *a, **k: called.append(k) or 0)
+    group = _write_ckpt_ensemble(tmp_path / "grp", [42, 7])
+    out = tmp_path / "eval"
+
+    rc = eval_checkpoints.main(
+        ["--checkpoints", str(group), "--out", str(out),
+         "--benchmarks", "faitheval", "--analyze"]
+    )
+    assert rc == 1
+    assert called == []  # the analysis never ran
+
+    # ...unless the caller says so explicitly, and even then the exit code stays non-zero.
+    rc = eval_checkpoints.main(
+        ["--checkpoints", str(group), "--out", str(out),
+         "--benchmarks", "faitheval", "--analyze", "--analyze-partial"]
+    )
+    assert rc == 1
+    assert len(called) == 1
 
 
 # --- resume ---------------------------------------------------------------------

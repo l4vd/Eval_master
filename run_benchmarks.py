@@ -355,16 +355,26 @@ def main(cfg: DictConfig) -> None:
                 _summary(results, out)
                 sys.exit(proc.returncode)
 
-    _summary(results, out)
+    # continue_on_error keeps the run going, but the *process* must still report failure:
+    # run_all.sh, a SLURM job and any CI wrapper read the exit code, and a run whose
+    # benchmarks all died used to exit 0 and read as a complete evaluation.
+    if _summary(results, out):
+        sys.exit(1)
 
 
-def _summary(results: list[tuple[str, str]], out: Path) -> None:
+def _summary(results: list[tuple[str, str]], out: Path) -> bool:
+    """Print the run summary; return whether anything failed."""
     print("\n==================== Benchmark run summary ====================")
     for label, status in results:
         print(f"  [{status:>16}]  {label}")
     print(f"\nArtifacts under: {out}")
-    if any(s.startswith("FAILED") for _, s in results):
-        print("One or more benchmarks failed (continue_on_error kept the run going).")
+    failed = [label for label, s in results if s.startswith("FAILED")]
+    if failed:
+        print(
+            f"{len(failed)} of {len(results)} benchmark command(s) FAILED "
+            "(continue_on_error kept the run going); exiting non-zero."
+        )
+    return bool(failed)
 
 
 if __name__ == "__main__":

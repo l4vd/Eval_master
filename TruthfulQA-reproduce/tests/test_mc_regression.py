@@ -15,7 +15,6 @@ import pytest
 torch = pytest.importorskip("torch")
 transformers = pytest.importorskip("transformers")
 
-from truthfulqa import models  # noqa: E402
 from truthfulqa.configs import ANSWER_COL, BEST_COL, INCORRECT_COL  # noqa: E402
 from truthfulqa.utilities import (  # noqa: E402
     format_best,
@@ -23,6 +22,8 @@ from truthfulqa.utilities import (  # noqa: E402
     format_prompt_with_answer_strings,
     split_multi_answer,
 )
+
+from truthfulqa import models  # noqa: E402
 
 pytestmark = pytest.mark.slow
 

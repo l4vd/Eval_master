@@ -270,7 +270,7 @@ def parse_run_dir(
     for name in names:
         parser = PARSERS.get(name)
         if parser is None:
-            warnings.warn(f"No parser registered for benchmark '{name}'; skipping.")
+            warnings.warn(f"No parser registered for benchmark '{name}'; skipping.", stacklevel=2)
             continue
         bench_dir = run_dir / name
         if not bench_dir.is_dir():
@@ -278,7 +278,7 @@ def parse_run_dir(
         try:
             records.extend(parser(bench_dir, arm, seed, is_primary))
         except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
-            warnings.warn(f"Failed to parse {name} in {run_dir}: {exc}")
+            warnings.warn(f"Failed to parse {name} in {run_dir}: {exc}", stacklevel=2)
     return records
 
 

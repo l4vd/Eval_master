@@ -3,7 +3,6 @@
 import dataclasses
 
 import pytest
-
 from harness_eval._datasets_compat import install_list_feature_compat
 
 

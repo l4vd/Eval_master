@@ -60,9 +60,13 @@ def run_analysis(config: AnalysisConfig) -> dict[str, list[Path]]:
         "aggregate": list(write_aggregate(aggregates, outdir).values()),
     }
 
+    # Resolved once, so the comparison step and the figures cannot disagree about which
+    # arm is the reference: this used to resolve the default for compare_all but hand
+    # plot_all the raw (possibly None) config value.
+    reference = config.reference or default_reference(build.arm_meta)
+
     comparisons = None
     if config.compare and len(build.arm_meta) >= 2:
-        reference = config.reference or default_reference(build.arm_meta)
         comparisons = compare_all(
             aggregates, build.arm_meta, reference,
             require_matched=config.require_matched, rng_seed=config.rng_seed,
@@ -72,7 +76,7 @@ def run_analysis(config: AnalysisConfig) -> dict[str, list[Path]]:
     if config.plot:
         figs = plot_all(
             build.records, outdir / "figures",
-            reference=config.reference, comparisons=comparisons,
+            reference=reference, comparisons=comparisons,
         )
         written["figures"] = figs
 

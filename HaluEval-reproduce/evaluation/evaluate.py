@@ -1,8 +1,8 @@
+import argparse
+import json
 import os
 import random
 import time
-import json
-import argparse
 
 # `openai` and `tiktoken` are imported lazily inside the OpenAI-backed helpers so
 # the local HuggingFace judge backend (--backend hf) runs without either package
@@ -72,7 +72,7 @@ def get_qa_response(model, question, answer, instruction, backend="openai", gene
         except openai.error.APIConnectionError:
             print('openai.error.APIConnectionError\nRetrying...')
             time.sleep(20)
-    
+
     return response
 
 

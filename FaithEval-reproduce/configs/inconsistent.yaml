@@ -7,6 +7,10 @@ scoring: phrase_match
 task_specific_prompt: >-
   If there is conflict information or multiple answers from the context, the answer should be 'conflict'.
 
+# NOTE: scoring is a SUBSTRING test (see metrics.phrase_match), not a word match, so
+# these are matched anywhere in the answer — e.g. "conflict" also matches "conflicting"
+# and "conflicts". Kept because it is FaithEval's own rule; the consequence is that this
+# task's accuracy is an UPPER BOUND.
 valid_phrases: # non strict matching
   - conflict
   - multiple answers
@@ -17,7 +21,6 @@ valid_phrases: # non strict matching
   - inconsistency
   - two answers
   - 2 answers
-  - multiple answers
   - conflicting
 
 strict_valid_phrases:

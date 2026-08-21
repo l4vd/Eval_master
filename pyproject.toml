@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "ruff"]
 stats = ["scipy>=1.10"]        # Wilcoxon signed-rank in analysis.stats (lazy import)
 plot = ["matplotlib>=3.7"]     # figures in analysis.plot (lazy import)
 
@@ -31,3 +31,42 @@ include = ["analysis*"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["analysis/tests"]
+
+# --- lint -----------------------------------------------------------------------
+# Mirrors SP-DPO-Base/pyproject.toml so the two sides of the repo are held to one
+# standard. Run it over the whole tree: `python -m ruff check .` (the excludes below
+# are what keep that meaningful).
+[tool.ruff]
+line-length = 100
+target-version = "py39"   # `requires-python` above; the benchmark venvs vary
+
+# Only code this repo maintains is linted. Every path below is BYTE-IDENTICAL to the
+# upstream benchmark it was forked from (verified with diff), and that identity is the
+# point: modernising it would break comparability with the published numbers and make
+# future upstream diffs unreadable. The forks' genuinely modified files —
+# HaluEval-reproduce/evaluation/, TruthfulQA-reproduce/truthfulqa/{evaluate,metrics,
+# models}.py, and every */src — are linted normally.
+extend-exclude = [
+    # Pristine upstream checkouts, kept for reference.
+    "HaluEval",
+    "TruthfulQA",
+    "RAGTruth",
+    # Unmodified upstream files living inside the forks.
+    "HaluEval-reproduce/generation",
+    "HaluEval-reproduce/analysis",
+    "RAGTruth-reproduce/baseline",
+    "TruthfulQA-reproduce/setup.py",
+    "TruthfulQA-reproduce/truthfulqa/__init__.py",
+    "TruthfulQA-reproduce/truthfulqa/configs.py",
+    "TruthfulQA-reproduce/truthfulqa/presets.py",
+    "TruthfulQA-reproduce/truthfulqa/utilities.py",
+    # Run artifacts.
+    "outputs",
+]
+
+[tool.ruff.lint]
+# SP-DPO-Base's set minus "UP". These forks are upstream code in upstream's house style,
+# where `.format()` is pervasive; auto-modernising ~180 call sites would be churn on
+# exactly the files whose diff against upstream needs to stay readable.
+select = ["E", "F", "I", "W", "B"]
+ignore = ["E501"]  # line length handled by the formatter

@@ -132,14 +132,38 @@ def _completion_context(question: str, preset: str) -> str:
     return "".join([preset_map[preset], "\n\nQ: ", question, "\nA:"])
 
 
+def _chat_template_ids(encoded) -> list[int]:
+    """Normalize `apply_chat_template(tokenize=True)` output to a flat list of token ids.
+
+    The return type is stack-dependent: transformers 4.41 (the HPC pin) hands back a plain
+    list of ids, while 5.x returns a `BatchEncoding`. Everything downstream here treats the
+    result as a list — `len(prefix_ids)` delimits the scored answer span, and
+    `answer_span_ids` concatenates it with `+` — so without this the chat style raises
+    `TypeError: unsupported operand type(s) for +: 'BatchEncoding' and 'list'` on a modern
+    stack, and would silently mis-measure the span if it did not.
+
+    Ported verbatim from `HaluEval-reproduce/evaluation/hf_local.py`, which also has a
+    sibling copy in `FaithEval-reproduce/src/faitheval/model.py`. Any fix here belongs in
+    all three.
+    """
+    if hasattr(encoded, "keys"):
+        encoded = encoded["input_ids"]
+    # A single conversation can come back either flat or wrapped in a batch dimension.
+    if len(encoded) and isinstance(encoded[0], (list, tuple)):
+        encoded = encoded[0]
+    return list(encoded)
+
+
 def context_ids(question: str, preset: str, tokenizer, style: str) -> list[int]:
     """Token ids of the prompt, ending exactly where the model's answer begins.
 
     `style` must already be resolved (see `resolve_style`).
     """
     if style == "chat":
-        return tokenizer.apply_chat_template(
-            _chat_messages(question, preset), add_generation_prompt=True, tokenize=True
+        return _chat_template_ids(
+            tokenizer.apply_chat_template(
+                _chat_messages(question, preset), add_generation_prompt=True, tokenize=True
+            )
         )
     return tokenizer(_completion_context(question, preset)).input_ids
 

@@ -1,15 +1,16 @@
-from .utilities import format_ft_comp, format_end2end_prompt, split_multi_answer
-from .configs import ANSWER_COL, INCORRECT_COL
-import numpy as np
-import pandas as pd
-import warnings
-from time import sleep
-
 # NOTE: `openai` (GPT-judge/GPT-info), `t5.evaluation.metrics` (BLEU/ROUGE), and
 # `datasets.load_metric` (BLEURT) are imported lazily inside the functions that use
 # them. This keeps the local / MC evaluation path free of those heavy, optional deps.
-
 import logging
+import warnings
+from time import sleep
+
+import numpy as np
+import pandas as pd
+
+from .configs import ANSWER_COL, INCORRECT_COL
+from .utilities import format_end2end_prompt, format_ft_comp, split_multi_answer
+
 logger = logging.getLogger()
 logger.setLevel(logging.CRITICAL)
 
@@ -96,7 +97,6 @@ def run_end2end_GPT3(model_key, tag, engine, frame, info=False):
                                                 stop=None, echo=False, logprobs=2)
             sleep(0.1)  # avoid OpenAI's max calls limit
             logprobs = response['choices'][0]['logprobs']
-            output_str = logprobs['tokens'][0]
             output_dict = logprobs['top_logprobs'][0]
 
             if ' yes' in output_dict:
@@ -143,7 +143,7 @@ def run_finetuned_GPT3(model_key, tag, engine, frame):
                 warnings.warn("Answers missing for {0} {1}!".format(model_key, idx), stacklevel=2)
                 continue
             if not len(frame.loc[idx, model_key]):
-                warnings.warn("Answers missing for {0} {0}!".format(model_key, idx), stacklevel=2)
+                warnings.warn("Answers missing for {0} {1}!".format(model_key, idx), stacklevel=2)
                 continue
             if pd.isnull(frame.loc[idx, ANSWER_COL]):
                 warnings.warn("References missing for {0}!".format(idx), stacklevel=2)
@@ -178,9 +178,9 @@ def run_finetuned_GPT3(model_key, tag, engine, frame):
                                         context=True)
 
                 response = openai.Completion.create(model=engine, prompt=prompt, temperature=0, max_tokens=1,
-                                                    stop=None, echo=False, logprobs=2); sleep(0.1)  # API rate limit
+                                                    stop=None, echo=False, logprobs=2)
+                sleep(0.1)  # API rate limit
                 logprobs = response['choices'][0]['logprobs']
-                output_str = logprobs['tokens'][0]
                 output_dict = logprobs['top_logprobs'][0]
 
                 if ' yes' in output_dict:
@@ -195,9 +195,9 @@ def run_finetuned_GPT3(model_key, tag, engine, frame):
                                         context=True)
 
                 response = openai.Completion.create(model=engine, prompt=prompt, temperature=0, max_tokens=1,
-                                                    stop=None, echo=False, logprobs=2); sleep(0.1)  # API rate limit
+                                                    stop=None, echo=False, logprobs=2)
+                sleep(0.1)  # API rate limit
                 logprobs = response['choices'][0]['logprobs']
-                output_str = logprobs['tokens'][0]
                 output_dict = logprobs['top_logprobs'][0]
 
                 if ' yes' in output_dict:

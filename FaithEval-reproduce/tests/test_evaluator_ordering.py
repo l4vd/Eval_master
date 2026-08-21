@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from faitheval import evaluator
 from faitheval.config import PHRASE_MATCH, EvalConfig, TaskConfig
 from faitheval.model import _chat_template_ids

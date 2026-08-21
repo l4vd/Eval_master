@@ -11,9 +11,10 @@ import pytest
 pytest.importorskip("torch")
 pytest.importorskip("transformers")
 
-from truthfulqa import metrics  # noqa: E402
 from truthfulqa.judge_local import LocalJudge  # noqa: E402
 from truthfulqa.utilities import format_end2end_prompt  # noqa: E402
+
+from truthfulqa import metrics  # noqa: E402
 
 pytestmark = pytest.mark.slow
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from analysis import fixtures
 from analysis.aggregate import aggregate_all
 from analysis.model import RecordSet
 from analysis.parse import parse_run_dir
@@ -13,7 +14,6 @@ from analysis.report import (
     write_aggregate,
     write_records,
 )
-from analysis import fixtures
 
 
 def _records(tmp_path):

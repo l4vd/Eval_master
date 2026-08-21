@@ -74,6 +74,21 @@ class EvalConfig:
             raise ValueError(
                 f"Unknown sort_by_length: {self.sort_by_length!r}; choose from {SORT_ORDERS}"
             )
+        # `TaskConfig` checks `valid_phrases`, but the strict list is only reachable
+        # through this flag, so it can only be checked here. Without this, --strict-match
+        # on a task config that omits `strict_valid_phrases` scores every example False
+        # and reports accuracy 0.0 as if the model had simply failed.
+        if (
+            self.strict_match
+            and self.task_config.scoring == PHRASE_MATCH
+            and not self.task_config.strict_valid_phrases
+        ):
+            raise ValueError(
+                f"--strict-match needs non-empty 'strict_valid_phrases' for task "
+                f"{self.task!r}, which uses {PHRASE_MATCH} scoring, but its config defines "
+                "none. Every answer would score as wrong (accuracy 0.0) with no error. Add "
+                "them to the task's YAML, or drop --strict-match to use 'valid_phrases'."
+            )
 
     @property
     def active_valid_phrases(self) -> list[str]:

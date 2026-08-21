@@ -28,7 +28,7 @@ import warnings
 from pathlib import Path
 
 from analysis.aggregate import ArmAggregate, aggregate_all
-from analysis.model import RecordSet, signed_value
+from analysis.model import RecordSet
 
 # Okabe-Ito: fixed categorical order. Black kept last (reads as text otherwise).
 _OKABE_ITO = [
@@ -48,7 +48,7 @@ def arm_colors(arms: list[str]) -> dict[str, str]:
         if i < len(_OKABE_ITO):
             colors[arm] = _OKABE_ITO[i]
         else:
-            warnings.warn(f"More than {len(_OKABE_ITO)} arms; '{arm}' folded to grey.")
+            warnings.warn(f"More than {len(_OKABE_ITO)} arms; '{arm}' folded to grey.", stacklevel=2)
             colors[arm] = "#BBBBBB"
     return colors
 
@@ -114,7 +114,11 @@ def plot_benchmark(
         return None
     arms = arm_order or rs.arms()
     colors = arm_colors(arms)
-    aggs = {a: aggregate_all(rs).get(a) for a in arms}
+    # Aggregate once, then index: aggregate_all runs a 10k-resample bootstrap per
+    # (arm, key), so calling it inside the comprehension repeated the whole thing once
+    # per arm.
+    all_aggs = aggregate_all(rs)
+    aggs = {a: all_aggs.get(a) for a in arms}
 
     keys = rs.keys()  # (benchmark, task, metric)
     n = len(keys)
@@ -288,7 +292,8 @@ def plot_paired_deltas(
         warnings.warn(
             f"plot_paired_deltas skipped for {comparison.arm} vs {comparison.reference} "
             f"({comparison.benchmark}/{comparison.task}/{comparison.metric}): "
-            "not a paired comparison."
+            "not a paired comparison.",
+            stacklevel=2,
         )
         return None
     plt = _mpl()
@@ -334,10 +339,26 @@ def plot_all(
     reference: str | None = None, comparisons: list | None = None,
     arm_order: list[str] | None = None,
 ) -> list[Path]:
-    """Produce every figure the available data supports; returns the saved paths."""
+    """Produce every figure the available data supports; returns the saved paths.
+
+    ``reference`` is *checked*, not applied: which arm the deltas were computed against is
+    a property of ``comparisons`` (each one records its own ``reference``), so overriding
+    it here would only relabel figures with an arm the numbers were never compared to.
+    Passing a different one is therefore a warning — previously this argument was accepted
+    and silently ignored, which made ``--reference`` on this module a no-op.
+    """
     outdir = Path(outdir)
     arms = arm_order or records.arms()
     paths: list[Path] = []
+    if reference is not None and comparisons:
+        actual = {c.reference for c in comparisons}
+        if actual != {reference}:
+            warnings.warn(
+                f"plot_all(reference={reference!r}) does not match the reference the "
+                f"comparisons were computed against ({sorted(actual)}). The figures use the "
+                "comparisons' own reference; re-run the comparison step to change it.",
+                stacklevel=2,
+            )
     for bench in records.benchmarks():
         for fn in (plot_benchmark, plot_tasks):
             p = fn(records, bench, outdir, arm_order=arms)

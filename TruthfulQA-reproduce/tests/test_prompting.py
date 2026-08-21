@@ -7,9 +7,9 @@ that made the original slicing wrong for every other tokenizer.
 """
 
 import pytest
+from truthfulqa.utilities import format_prompt, format_prompt_with_answer_strings
 
 from truthfulqa import prompting
-from truthfulqa.utilities import format_prompt, format_prompt_with_answer_strings
 
 transformers = pytest.importorskip("transformers")
 

@@ -11,7 +11,11 @@ import logging
 from typing import Any, Callable
 
 from harness_eval.config import EvalConfig
-from harness_eval.model import build_model_args, model_args_to_string
+from harness_eval.model import (
+    build_model_args,
+    model_args_to_string,
+    reraise_if_offline_cache_miss,
+)
 from harness_eval.results import build_summary, write_outputs
 
 logger = logging.getLogger(__name__)
@@ -85,20 +89,27 @@ def run_evaluation(
     # Every behaviour-bearing kwarg is passed EXPLICITLY (never left to an lm_eval
     # default): `fewshot_as_multiturn`'s default flipped between 0.4.5 and 0.4.12,
     # and simple_evaluate is @positional_deprecated, so we also call it by keyword.
-    results = evaluate_fn(
-        model="hf",
-        model_args=model_args,
-        tasks=resolved_tasks,
-        num_fewshot=config.num_fewshot,
-        batch_size=config.batch_size,
-        device=config.device,
-        limit=config.limit,
-        apply_chat_template=config.apply_chat_template,
-        fewshot_as_multiturn=config.fewshot_as_multiturn,
-        system_instruction=config.system_instruction,
-        log_samples=config.log_samples,
-        task_manager=task_manager,
-    )
+    try:
+        results = evaluate_fn(
+            model="hf",
+            model_args=model_args,
+            tasks=resolved_tasks,
+            num_fewshot=config.num_fewshot,
+            batch_size=config.batch_size,
+            device=config.device,
+            limit=config.limit,
+            apply_chat_template=config.apply_chat_template,
+            fewshot_as_multiturn=config.fewshot_as_multiturn,
+            system_instruction=config.system_instruction,
+            log_samples=config.log_samples,
+            task_manager=task_manager,
+        )
+    except OSError as exc:
+        # lm_eval loads the model for us, so this is the only place an offline
+        # cache miss can surface here. Replaces HF's generic 404-shaped error with
+        # the actual fix; re-raises untouched when that is not the cause.
+        reraise_if_offline_cache_miss(str(model_args.get("pretrained", config.model_id)), exc)
+        raise
     if results is None:
         # simple_evaluate returns None off the main rank in a distributed run.
         logger.warning("simple_evaluate returned None (non-primary rank?); nothing to write.")

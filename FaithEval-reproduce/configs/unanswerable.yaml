@@ -7,6 +7,11 @@ scoring: phrase_match
 task_specific_prompt: >-
   If there is no information available from the context, the answer should be 'unknown'.
 
+# NOTE: scoring is a SUBSTRING test (see metrics.phrase_match), not a word match, so
+# "not" also matches inside "notable", "nothing", "cannot" and "another" — answers that
+# never refused still count as correct. Kept because it is FaithEval's own rule; the
+# consequence is that this task's accuracy is an UPPER BOUND. Use --strict-match
+# (strict_valid_phrases below) when the absolute level matters.
 valid_phrases:
   - unknown
   - no answer

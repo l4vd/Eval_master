@@ -6,7 +6,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from harness_eval.cli import build_config, parse_args, resolve_device
 from harness_eval.evaluator import run_evaluation
 

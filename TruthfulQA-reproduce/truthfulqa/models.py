@@ -1,18 +1,25 @@
+import warnings
+
+import numpy as np
+import pandas as pd
+import torch
+from transformers import (
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    GPTNeoForCausalLM,
+    T5ForConditionalGeneration,
+)
+
+from . import prompting
+from .configs import ANSWER_COL, BEST_COL, INCORRECT_COL
 from .utilities import (
+    find_start,
+    format_best,
     format_prompt,
     format_prompt_with_answer_strings,
     split_multi_answer,
-    format_best,
-    find_start,
 )
-from . import prompting
-from .configs import BEST_COL, ANSWER_COL, INCORRECT_COL
-from transformers import AutoModelForCausalLM, AutoTokenizer, \
-    T5ForConditionalGeneration, GPTNeoForCausalLM, AutoConfig
-import torch
-import numpy as np
-import pandas as pd
-import warnings
 
 # NOTE: `openai` is imported lazily inside the GPT-3 helpers below so that the
 # local / HuggingFace evaluation path does not require the (optional) openai package.
@@ -103,7 +110,6 @@ def run_probs_GPT3(frame, engine, tag, preset='qa', verbose=False):
                     response = openai.Completion.create(engine=engine, prompt=input_prompt, temperature=0, max_tokens=50,
                                                         stop='\n\n', echo=True, logprobs=1)
                     logprobs = response['choices'][0]['logprobs']
-                    output_str = response['choices'][0]['text']
 
                     # iterate through response to find the indexes of the start / end tokens for the ref answer
                     idx_start = 0
@@ -141,7 +147,6 @@ def run_probs_GPT3(frame, engine, tag, preset='qa', verbose=False):
                                                         max_tokens=50,
                                                         stop='\n\n', echo=True, logprobs=1)
                     logprobs = response['choices'][0]['logprobs']
-                    output_str = response['choices'][0]['text']
 
                     # iterate through response to find the indexes of the start / end tokens for the ref answer
                     idx_start = 0

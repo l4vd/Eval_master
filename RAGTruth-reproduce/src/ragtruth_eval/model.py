@@ -26,8 +26,15 @@ import dataclasses
 import logging
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import torch
+
+if TYPE_CHECKING:
+    # Annotation-only: `transformers` is imported lazily inside the loaders below, so
+    # naming this at runtime would undo that. Without the guard `PreTrainedModel` is
+    # simply an undefined name (ruff F821) and any type checker on this file fails.
+    from transformers import PreTrainedModel
 
 # `transformers` is imported lazily inside the loader/generator so that importing
 # this module (e.g. for `GenerationParams` in the CLI, or the metrics tests) does
@@ -67,6 +74,23 @@ def _check_local_path_exists(model_id: str, *, what: str) -> None:
         raise FileNotFoundError(f"{what} path does not exist: {model_id}")
 
 
+def _chat_template_tensor(encoded) -> torch.Tensor:
+    """Normalize `apply_chat_template(return_tensors="pt")` output to a plain tensor.
+
+    Stack-dependent, like the `tokenize=True` form its siblings normalize
+    (`_chat_template_ids` in `HaluEval-reproduce/evaluation/hf_local.py`,
+    `FaithEval-reproduce/src/faitheval/model.py` and
+    `TruthfulQA-reproduce/truthfulqa/prompting.py`): transformers 4.x returns a tensor,
+    5.x returns a `BatchEncoding`. `_generate_from_ids` below calls
+    `torch.ones_like(input_ids)`, which rejects a `BatchEncoding` outright — so without
+    this, `chat()` raises `TypeError: ones_like(): argument 'input' must be Tensor` on a
+    modern stack. Verified against transformers 5.14.1.
+    """
+    if hasattr(encoded, "keys"):
+        encoded = encoded["input_ids"]
+    return encoded
+
+
 def _is_peft_adapter(model_path: str) -> bool:
     """True if `model_path` is a local directory holding a PEFT adapter checkpoint.
 
@@ -75,6 +99,33 @@ def _is_peft_adapter(model_path: str) -> bool:
     can't load that directory directly.
     """
     return (Path(model_path) / "adapter_config.json").is_file()
+
+
+def _is_hf_hub_offline() -> bool:
+    return os.environ.get("HF_HUB_OFFLINE") == "1" or os.environ.get("TRANSFORMERS_OFFLINE") == "1"
+
+
+def _reraise_if_offline_cache_miss(model_id: str, exc: OSError) -> None:
+    """Turn huggingface_hub's offline-cache-miss `OSError` into an actionable one.
+
+    On this project's HPC setup (see README.md "Mirror / offline"), compute nodes
+    export `HF_HUB_OFFLINE=1`/`TRANSFORMERS_OFFLINE=1` and have no internet access, so
+    any Hub id not already pre-downloaded into the shared cache on a login node fails
+    here with a generic connection/404-shaped error. Re-raise with the actual fix.
+
+    Sibling copies live in `HaluEval-reproduce/evaluation/hf_local.py`,
+    `FaithEval-reproduce/src/faitheval/model.py`,
+    `TruthfulQA-reproduce/truthfulqa/hf_local.py` and
+    `harness-eval/src/harness_eval/model.py`. Any fix here belongs in all five.
+    """
+    if _looks_like_local_path(model_id) or not _is_hf_hub_offline():
+        return
+    raise OSError(
+        f"'{model_id}' is not in the local Hugging Face cache and this node is offline "
+        "(HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE=1). Pre-download it on a node with internet "
+        f"access first, e.g.:\n    huggingface-cli download {model_id}\n"
+        "then re-run on the compute node. See the 'Mirror / offline' section in README.md."
+    ) from exc
 
 
 def _load_causal_lm(
@@ -90,20 +141,32 @@ def _load_causal_lm(
     _check_local_path_exists(model_id, what="Model")
 
     if not _is_peft_adapter(model_id):
-        return AutoModelForCausalLM.from_pretrained(
-            model_id, cache_dir=cache_dir, torch_dtype=torch_dtype, device_map=device_map
-        )
+        try:
+            return AutoModelForCausalLM.from_pretrained(
+                model_id, cache_dir=cache_dir, torch_dtype=torch_dtype, device_map=device_map
+            )
+        except OSError as exc:
+            _reraise_if_offline_cache_miss(model_id, exc)
+            raise
 
     from peft import PeftConfig, PeftModel
 
-    adapter_config = PeftConfig.from_pretrained(model_id)
+    try:
+        adapter_config = PeftConfig.from_pretrained(model_id)
+    except OSError as exc:
+        _reraise_if_offline_cache_miss(model_id, exc)
+        raise
     resolved_base_id = base_model_id or adapter_config.base_model_name_or_path
     _check_local_path_exists(resolved_base_id, what="Base model")
     logger.info("Detected PEFT adapter at %s; loading base model %s", model_id, resolved_base_id)
 
-    base_model = AutoModelForCausalLM.from_pretrained(
-        resolved_base_id, cache_dir=cache_dir, torch_dtype=torch_dtype, device_map=device_map
-    )
+    try:
+        base_model = AutoModelForCausalLM.from_pretrained(
+            resolved_base_id, cache_dir=cache_dir, torch_dtype=torch_dtype, device_map=device_map
+        )
+    except OSError as exc:
+        _reraise_if_offline_cache_miss(resolved_base_id, exc)
+        raise
     model = PeftModel.from_pretrained(base_model, model_id)
     return model.merge_and_unload()
 
@@ -186,8 +249,10 @@ class HFGenerator:
         chat template (e.g. a base, non-instruct model).
         """
         if getattr(self.tokenizer, "chat_template", None):
-            input_ids = self.tokenizer.apply_chat_template(
-                messages, add_generation_prompt=True, return_tensors="pt"
+            input_ids = _chat_template_tensor(
+                self.tokenizer.apply_chat_template(
+                    messages, add_generation_prompt=True, return_tensors="pt"
+                )
             )
         else:
             text = "".join(f"[INST] {m['content'].strip()} [/INST]" for m in messages)

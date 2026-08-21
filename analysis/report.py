@@ -11,9 +11,8 @@ import json
 from pathlib import Path
 from typing import Iterable
 
-from analysis.aggregate import ArmAggregate, MetricAggregate
+from analysis.aggregate import ArmAggregate
 from analysis.model import RecordSet
-
 
 # --- low-level I/O (parent dirs auto-created) ------------------------------------
 
@@ -117,8 +116,14 @@ def comparisons_to_latex(comparisons: list) -> str:
         tm = f"{c.task}/{c.metric}"
         if c.regime == "paired" and c.paired is not None:
             p = c.paired.get("p_value")
-            stars = significance_stars(p) if p is not None else ""
-            detail = f"Wilcoxon $p={_fmt(p)}$ {stars}".strip()
+            note = c.paired.get("note")
+            if note:
+                # An uncomputed test must not render as a blank cell next to computed
+                # ones — that reads as "not significant" rather than "not tested".
+                detail = f"n/a ({_esc(note)})"
+            else:
+                stars = significance_stars(p) if p is not None else ""
+                detail = f"Wilcoxon $p={_fmt(p)}$ {stars}".strip()
         elif c.one_sample is not None:
             lo = c.one_sample.get("ci_95_lower")
             hi = c.one_sample.get("ci_95_upper")

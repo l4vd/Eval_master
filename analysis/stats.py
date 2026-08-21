@@ -100,6 +100,9 @@ class PairedResult:
     p_value: float
     ci_95_lower: float = field(default=float("nan"))  # paired bootstrap CI of the diffs
     ci_95_upper: float = field(default=float("nan"))
+    #: Why ``statistic``/``p_value`` are NaN, when they are. ``None`` means the test ran.
+    #: Without it a declined test and an uncomputed one both render as an empty cell.
+    note: str | None = None
 
     def to_dict(self) -> dict:
         from dataclasses import asdict
@@ -152,6 +155,7 @@ def wilcoxon_matched(
         statistic=float("nan"), p_value=float("nan"),
     )
     if n < 1:
+        result.note = "no shared seeds"
         return result
 
     lo, hi = bootstrap_ci(diffs, seed=seed)
@@ -168,8 +172,13 @@ def wilcoxon_matched(
 
         stat, p = wilcoxon(a, b)
         result.statistic, result.p_value = float(stat), float(p)
-    except (ImportError, ValueError):
-        pass
+    except ImportError:
+        # Recorded rather than swallowed: an absent p-value must not read as a
+        # non-significant one, and "scipy missing" and "scipy declined this sample" call
+        # for different fixes. `significance_stars(nan)` renders both as an empty cell.
+        result.note = "scipy not installed (pip install 'eval-master[stats]')"
+    except ValueError as exc:
+        result.note = f"wilcoxon declined this sample: {exc}"
     return result
 
 

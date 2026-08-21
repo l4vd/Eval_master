@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from analysis import fixtures
 from analysis.aggregate import aggregate_all, aggregate_arm
 from analysis.model import RecordSet
 from analysis.parse import parse_run_dir
-from analysis import fixtures
 
 
 def _arm_records(tmp_path, arm, seed_to_acc):

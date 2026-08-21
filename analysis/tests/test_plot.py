@@ -8,13 +8,11 @@ import pytest
 
 pytest.importorskip("matplotlib")
 
+from analysis import fixtures, plot
 from analysis.aggregate import aggregate_all
 from analysis.compare import compare_all
-from analysis.model import RecordSet
-from analysis.parse import parse_run_dir
 from analysis.report import write_comparisons, write_records
 from analysis.spec import AnalysisConfig, ArmSpec, build_records
-from analysis import fixtures, plot
 
 
 def _multi_arm(tmp_path):

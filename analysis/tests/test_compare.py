@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
+from analysis import fixtures
 from analysis.aggregate import aggregate_all
 from analysis.compare import ONE_SAMPLE, PAIRED, compare_all
 from analysis.spec import AnalysisConfig, ArmSpec, build_records
 from analysis.stats import SeedMismatchError
-from analysis import fixtures
 
 
 def _build(tmp_path, arm_to_seedacc, **cfg):
