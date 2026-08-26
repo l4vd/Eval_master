@@ -34,6 +34,7 @@ from analysis.compare import compare_all
 from analysis.plot import plot_all
 from analysis.report import write_aggregate, write_comparisons, write_records
 from analysis.spec import AnalysisConfig, ArmMeta, ArmSpec, build_records, parse_arm_arg
+from analysis.stats import DEFAULT_MC_METHOD, MC_METHODS
 
 # The launcher lives one level up from this package.
 _LAUNCHER = Path(__file__).resolve().parents[1] / "run_benchmarks.py"
@@ -70,6 +71,7 @@ def run_analysis(config: AnalysisConfig) -> dict[str, list[Path]]:
         comparisons = compare_all(
             aggregates, build.arm_meta, reference,
             require_matched=config.require_matched, rng_seed=config.rng_seed,
+            mc_method=config.mc_method,
         )
         written["comparisons"] = list(write_comparisons(comparisons, outdir).values())
 
@@ -139,6 +141,7 @@ def build_config(args: argparse.Namespace) -> AnalysisConfig:
         require_matched=not args.allow_seed_mismatch,
         primary_map=_load_primary_map(args.primary_map),
         rng_seed=args.rng_seed,
+        mc_method=args.mc_method,
     )
 
 
@@ -161,6 +164,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--primary-map", default=None,
                     help="YAML/JSON overriding the primary-metric-per-benchmark map.")
     ap.add_argument("--rng-seed", type=int, default=0, help="Bootstrap RNG seed.")
+    ap.add_argument(
+        "--mc-method", default=DEFAULT_MC_METHOD, choices=list(MC_METHODS),
+        help="Multiplicity correction across the paired comparison family: 'holm' "
+             "(family-wise error rate, default), 'bh' (false discovery rate), or 'none'.",
+    )
     # --run-evals group
     ap.add_argument("--run-evals", action="store_true",
                     help="Drive the Hydra launcher --multirun over --models first.")

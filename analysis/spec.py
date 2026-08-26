@@ -18,6 +18,7 @@ from pathlib import Path
 from analysis.discover import discover_arm
 from analysis.model import RecordSet
 from analysis.parse import PrimaryPredicate, _default_is_primary, parse_run_dir
+from analysis.stats import DEFAULT_MC_METHOD
 
 
 @dataclass
@@ -51,6 +52,9 @@ class AnalysisConfig:
     require_matched: bool = True
     primary_map: dict | None = None
     rng_seed: int = 0
+    #: Multiplicity procedure across the paired comparison family; see
+    #: :func:`analysis.stats.adjust_pvalues`. "none" disables it explicitly.
+    mc_method: str = DEFAULT_MC_METHOD
 
 
 @dataclass

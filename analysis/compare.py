@@ -13,6 +13,17 @@ Two regimes, never mixed:
 Comparisons run over the reference arm vs. every other arm, per (benchmark, task, metric)
 key — primary keys by default. Deltas are also reported in *signed* space (direction
 aligned so positive = improvement) for cross-metric ranking / plotting.
+
+**Multiplicity.** The grid is ``(arms - 1) x primary keys`` simultaneous tests against one
+reference, which is routinely tens of cells across five benchmarks. Raw p-values are
+therefore accompanied by a family-adjusted one (:func:`~analysis.stats.adjust_pvalues`);
+``p_value`` is kept alongside so the correction is auditable rather than baked in.
+
+A power note that governs how any of this should be read: the exact two-sided Wilcoxon
+p-value is bounded below by ``2 / 2**n``, so at **n = 5 seeds no paired result can reach
+p < 0.05 at all** (min 0.0625), before any correction. Six seeds is the minimum at which
+the paired test can reject; ten is where it has usable power. See
+``analysis/analysis_theory.md`` §5.2.
 """
 
 from __future__ import annotations
@@ -22,7 +33,13 @@ from dataclasses import asdict, dataclass, field
 from analysis.aggregate import ArmAggregate, Key
 from analysis.model import signed_value
 from analysis.spec import ArmMeta
-from analysis.stats import PairedResult, one_sample_summary, wilcoxon_matched
+from analysis.stats import (
+    DEFAULT_MC_METHOD,
+    PairedResult,
+    adjust_pvalues,
+    one_sample_summary,
+    wilcoxon_matched,
+)
 
 ONE_SAMPLE = "one_sample"
 PAIRED = "paired"
@@ -67,8 +84,14 @@ def compare_all(
     require_matched: bool = True,
     primary_only: bool = True,
     rng_seed: int = 0,
+    mc_method: str = DEFAULT_MC_METHOD,
 ) -> list[Comparison]:
-    """Compare every non-reference arm against ``reference`` over shared keys."""
+    """Compare every non-reference arm against ``reference`` over shared keys.
+
+    Args:
+        mc_method: Multiplicity procedure applied across the whole paired family; one of
+            :data:`~analysis.stats.MC_METHODS`. See the module docstring.
+    """
     if reference not in aggregates:
         raise KeyError(f"Reference arm '{reference}' not found among {list(aggregates)}")
     ref_agg = aggregates[reference]
@@ -89,7 +112,32 @@ def compare_all(
                 _compare_one(reference, arm, key, ref_m, m, regime,
                              require_matched=require_matched, rng_seed=rng_seed)
             )
+    _annotate_multiplicity(out, mc_method)
     return out
+
+
+def _annotate_multiplicity(comparisons: list[Comparison], method: str) -> None:
+    """Add ``p_value_adjusted`` / ``mc_method`` / ``mc_family_size`` to each paired block.
+
+    The family is every **paired** comparison in this grid. One-sample comparisons are
+    excluded because they carry no p-value at all (§4.1 of the theory doc): including them
+    would inflate ``m`` on behalf of tests that were never performed.
+
+    Written in place, next to the raw ``p_value`` rather than over it, so a reader can see
+    both what was measured and what it was corrected to.
+    """
+    paired = [c for c in comparisons if c.regime == PAIRED and c.paired is not None]
+    if not paired:
+        return
+    raw = [c.paired["p_value"] for c in paired]
+    adjusted = adjust_pvalues(raw, method)
+    # Tests that did not run are not part of the family (see adjust_pvalues); report the
+    # size that was actually corrected over, not the number of grid cells.
+    family_size = sum(1 for p in raw if p == p)
+    for c, adj in zip(paired, adjusted):
+        c.paired["p_value_adjusted"] = adj
+        c.paired["mc_method"] = method
+        c.paired["mc_family_size"] = family_size
 
 
 def _compare_one(

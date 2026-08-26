@@ -182,6 +182,84 @@ def wilcoxon_matched(
     return result
 
 
+# --- multiplicity ---------------------------------------------------------------
+
+#: Adjustment procedures :func:`adjust_pvalues` knows. ``"none"`` is offered explicitly so a
+#: caller can turn correction off by configuration rather than by skipping the call, which
+#: keeps the recorded provenance honest ("corrected with: none" beats a silently absent key).
+MC_METHODS = ("holm", "bh", "none")
+
+#: Default procedure. Holm rather than Bonferroni (uniformly more powerful, same
+#: assumptions) and rather than BH, because the headline claim is "this method beats the
+#: baseline", where one spurious win costs more than one missed one. Use "bh" for a
+#: screening table where a known share of false positives is acceptable.
+DEFAULT_MC_METHOD = "holm"
+
+
+def adjust_pvalues(p_values, method: str = "holm") -> list[float]:
+    """Multiplicity-adjusted p-values, returned in the input order.
+
+    A comparison grid of ``(arms - 1) x primary keys`` runs tens of simultaneous tests
+    against one reference, so an uncorrected 0.05 threshold does not control anything at the
+    family level. Both standard procedures are offered because they control different
+    things and the right choice depends on the claim:
+
+    * ``"holm"`` — Holm (1979) step-down; controls the **family-wise error rate**, i.e. the
+      probability of *any* false positive. Use when a single spurious win would undermine
+      the conclusion. Uniformly more powerful than plain Bonferroni and just as assumption-
+      free, so there is no reason to prefer Bonferroni here.
+    * ``"bh"`` — Benjamini-Hochberg (1995) step-up; controls the **false discovery rate**,
+      i.e. the expected *proportion* of false positives among the rejections. Use for a
+      screening table where a known fraction of false positives is tolerable.
+    * ``"none"`` — returned unchanged.
+
+    ``NaN`` entries (a test that did not run — no shared seeds, SciPy absent, SciPy
+    declined the sample) are **excluded from the family** and returned as ``NaN``. Counting
+    them would inflate ``m`` and penalise the tests that *did* run for the existence of
+    tests that did not.
+
+    Args:
+        p_values: Raw two-sided p-values, in any order; ``NaN`` for "not tested".
+        method: One of :data:`MC_METHODS`.
+
+    Returns:
+        Adjusted p-values, aligned with the input. ``"holm"`` and ``"bh"`` clip to
+        ``[0, 1]``; ``"none"`` returns the inputs unchanged.
+
+    Raises:
+        ValueError: On an unknown ``method`` — a typo must not silently mean "no correction".
+    """
+    if method not in MC_METHODS:
+        raise ValueError(f"Unknown multiplicity method {method!r}; expected one of {MC_METHODS}.")
+    raw = [float(p) for p in p_values]
+    if method == "none":
+        return raw
+
+    idx = [i for i, p in enumerate(raw) if p == p]  # drops NaN
+    m = len(idx)
+    out = list(raw)
+    if m == 0:
+        return out
+
+    order = sorted(idx, key=lambda i: raw[i])
+    if method == "holm":
+        # Step-down: adj_(k) = max_{j<=k} (m - j + 1) * p_(j), enforced monotone by the
+        # running max -- without it an adjusted p could fall below an earlier, smaller one.
+        running = 0.0
+        for rank, i in enumerate(order):  # rank is 0-based
+            running = max(running, (m - rank) * raw[i])
+            out[i] = min(1.0, running)
+    else:  # "bh"
+        # Step-up: adj_(k) = min_{j>=k} (m / j) * p_(j), so the sweep runs from the largest
+        # p downwards and the running min supplies the monotonicity.
+        running = 1.0
+        for rank in range(m - 1, -1, -1):
+            i = order[rank]
+            running = min(running, m / (rank + 1) * raw[i])
+            out[i] = min(1.0, running)
+    return out
+
+
 def significance_stars(p_value: float) -> str:
     """Conventional significance annotation used in the paired-delta plot."""
     if p_value != p_value:  # NaN

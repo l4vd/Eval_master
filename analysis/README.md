@@ -47,6 +47,8 @@ The analysis package ships with the launcher (`eval-master`). It needs `numpy` (
 ```bash
 # from Eval_master/, in its own .venv
 uv sync --extra stats --extra plot     # or: pip install -e '.[stats,plot]'
+
+uv sync --extra stats --extra plot --extra dev #for dev dependencies
 ```
 
 Without `stats`, the Wilcoxon test degrades gracefully (returns NaN stat/p, keeps the
@@ -260,6 +262,21 @@ The comparison **regime is chosen automatically** per arm pair (see
   degenerate). The ensemble is characterised (mean ± std + bootstrap CI) and its distance
   from the fixed point is reported. No Wilcoxon.
 
+**Multiplicity.** The grid is `(arms - 1) x primary keys` simultaneous tests against one
+reference, so p-values are family-adjusted across the paired comparisons: `--mc-method holm`
+(family-wise error rate, the default), `bh` (false discovery rate), or `none`. The raw
+`p_value` is kept beside `p_value_adjusted` in `comparisons.json` so the correction stays
+auditable; the significance stars carry the **adjusted** value. One-sample cells have no
+p-value and are excluded from the family, as are tests that did not run (`mc_family_size`
+records what was actually corrected over).
+
+> **Read this before interpreting any p-value here.** The exact two-sided Wilcoxon p-value
+> is bounded below by `2 / 2**n`, so at **n = 5 seeds no paired result can reach p < 0.05**
+> (minimum 0.0625) — for any effect size, before any correction. An absence of stars at
+> n ≤ 5 is a property of the sample size, never evidence of equivalence. Six seeds is the
+> minimum at which the test can reject at all; ten is where it has usable power. See
+> [`analysis_theory.md`](analysis_theory.md) §5.2.
+
 `--allow-seed-mismatch` controls the paired-mode safety check:
 
 | Flag                    | Default behavior                                                                                                                 | With the flag                                                               |
@@ -332,7 +349,7 @@ Written under `--out` (default `outputs/analysis/`):
 | `aggregate.json`          | always       | Per-arm, per-key mean / std / 95% CI / per-seed values.                                                      |
 | `aggregate.tex`           | always       | Booktabs LaTeX table of the primary metrics (thesis appendix).                                               |
 | `comparisons.json`        | if comparing | One row per arm-vs-reference comparison: regime, raw + signed delta, and the paired-test / one-sample block. |
-| `comparisons.tex`         | if comparing | LaTeX table: signed Δ + Wilcoxon p (paired) or CI (one-sample).                                              |
+| `comparisons.tex`         | if comparing | LaTeX table: signed Δ + Wilcoxon p and family-adjusted p (paired) or CI (one-sample). Stars follow the adjusted p. |
 | `figures/*.png` + `*.pdf` | if plotting  | See below. Every figure is written as both a 150-dpi PNG and a vector PDF.                                   |
 
 ### Figures (`figures/`)
@@ -387,7 +404,7 @@ uv run --extra dev --extra stats pytest      # from Eval_master/
 | [`spec.py`](spec.py)                         | Arm declaration, `AnalysisConfig`, `NAME=SPEC` parsing, primary-metric override.                                                                                      |
 | [`aggregate.py`](aggregate.py)               | Across-seed mean / std / bootstrap-CI per (benchmark, task, metric).                                                                                                  |
 | [`compare.py`](compare.py)                   | Arm-vs-reference comparison; auto-selects paired vs one-sample.                                                                                                       |
-| [`stats.py`](stats.py)                       | Vendored bootstrap CI, one-sample summary, seed-aligned Wilcoxon.                                                                                                     |
+| [`stats.py`](stats.py)                       | Vendored bootstrap CI, one-sample summary, seed-aligned Wilcoxon, Holm/BH multiplicity adjustment.                                                                    |
 | [`plot.py`](plot.py)                         | Five matplotlib figure types; also a standalone re-plot entry point.                                                                                                  |
 | [`report.py`](report.py)                     | JSON / JSONL / LaTeX writers.                                                                                                                                         |
 | [`fixtures.py`](fixtures.py)                 | Synthetic run-dir generators (used by the offline tests).                                                                                                             |

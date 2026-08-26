@@ -82,3 +82,45 @@ def test_multi_arm_against_reference(tmp_path):
     arms = {c.arm for c in comps}
     assert arms == {"sft", "dpo"}
     assert all(c.regime == ONE_SAMPLE for c in comps)  # base fixed -> all one-sample
+
+
+# --- multiplicity across the comparison grid ------------------------------------
+
+
+def test_paired_comparisons_carry_a_family_adjusted_p(tmp_path):
+    """Every paired cell gets p_value_adjusted, and the raw p is kept beside it."""
+    res, aggs = _build(tmp_path, {
+        "ref": {42: 0.40, 7: 0.42, 99: 0.41},
+        "a": {42: 0.50, 7: 0.52, 99: 0.51},
+        "b": {42: 0.45, 7: 0.47, 99: 0.46},
+    })
+    comps = compare_all(aggs, res.arm_meta, reference="ref")
+    paired = [c for c in comps if c.regime == PAIRED]
+    assert paired, "expected paired comparisons"
+    for c in paired:
+        assert c.paired["mc_method"] == "holm"
+        assert c.paired["mc_family_size"] == len(paired)
+        # Adjusted is never smaller than raw, and the raw value survives for auditing.
+        assert c.paired["p_value_adjusted"] >= c.paired["p_value"] - 1e-12
+
+
+def test_mc_method_none_leaves_p_values_untouched(tmp_path):
+    res, aggs = _build(tmp_path, {
+        "ref": {42: 0.40, 7: 0.42, 99: 0.41},
+        "a": {42: 0.50, 7: 0.52, 99: 0.51},
+    })
+    comps = compare_all(aggs, res.arm_meta, reference="ref", mc_method="none")
+    for c in (c for c in comps if c.regime == PAIRED):
+        assert c.paired["p_value_adjusted"] == pytest.approx(c.paired["p_value"], nan_ok=True)
+        assert c.paired["mc_method"] == "none"
+
+
+def test_one_sample_comparisons_are_not_part_of_the_family(tmp_path):
+    """A regime with no p-value must not inflate m for the ones that have one."""
+    res, aggs = _build(tmp_path, {
+        "base": {None: 0.30},
+        "dpo": {42: 0.40, 7: 0.50, 99: 0.45},
+    })
+    comps = compare_all(aggs, res.arm_meta, reference="base")
+    assert all(c.regime == ONE_SAMPLE for c in comps)
+    assert all("p_value_adjusted" not in (c.paired or {}) for c in comps)

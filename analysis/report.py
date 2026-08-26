@@ -122,8 +122,18 @@ def comparisons_to_latex(comparisons: list) -> str:
                 # ones — that reads as "not significant" rather than "not tested".
                 detail = f"n/a ({_esc(note)})"
             else:
-                stars = significance_stars(p) if p is not None else ""
-                detail = f"Wilcoxon $p={_fmt(p)}$ {stars}".strip()
+                # The ADJUSTED p carries the stars: with tens of simultaneous tests against
+                # one reference, stars on the raw p would annotate a threshold that controls
+                # nothing at the family level. The raw p is printed alongside so the
+                # correction stays auditable from the table itself.
+                adj = c.paired.get("p_value_adjusted")
+                method = c.paired.get("mc_method", "none")
+                shown = adj if adj is not None else p
+                stars = significance_stars(shown) if shown is not None else ""
+                detail = f"Wilcoxon $p={_fmt(p)}$"
+                if adj is not None and method != "none":
+                    detail += rf", $p_{{\mathrm{{{_esc(method)}}}}}={_fmt(adj)}$"
+                detail = f"{detail} {stars}".strip()
         elif c.one_sample is not None:
             lo = c.one_sample.get("ci_95_lower")
             hi = c.one_sample.get("ci_95_upper")
