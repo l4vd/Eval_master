@@ -1,0 +1,19 @@
+# Normalize line endings. Text files are stored with LF in the repo; Git
+# converts to the platform default on checkout unless overridden below.
+#
+# This file exists because it did NOT: with `core.autocrlf=true` (the Git for
+# Windows default) and no attributes, checkout rewrites every script with CRLF.
+# On Linux that makes the shebang `#!/usr/bin/env bash\r`, so the kernel looks
+# for an interpreter literally named "bash\r" and the run dies with
+#
+#     /usr/bin/env: bash<CR>: No such file or directory
+#
+# which a terminal renders as the unattributable ": No such file or directory"
+# (the CR returns the cursor to column 0 and the rest overwrites the path).
+# The rules below pin LF regardless of any machine's autocrlf setting, so a
+# cluster checkout is safe even where core.autocrlf is misconfigured.
+* text=auto
+
+# These MUST stay LF even on Windows checkouts — CRLF breaks bash and make.
+*.sh     text eol=lf
+Makefile text eol=lf
