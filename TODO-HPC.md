@@ -62,8 +62,22 @@ Every `pyproject-HPC.toml` (launcher + 5 benchmarks = 6 files) ships a
 
 - [ ] From the `Eval_master` root: `./setup_envs_HPC.sh` — this backs up each
       `pyproject.toml`, swaps in `pyproject-HPC.toml`, drops the stale
-      `uv.lock`, and runs `uv sync --extra dev` for the launcher and all five
-      benchmarks in one go.
+      `uv.lock`, and runs `uv sync` for the launcher and all five benchmarks in
+      one go. The benchmarks get `--extra dev`; the launcher additionally gets
+      `--extra stats --extra plot`, because `analysis.stats` (scipy) and
+      `analysis.plot` (matplotlib) are lazy *imports* but not optional in
+      practice — `--analyze`, `run_analysis.sh` and `run_plots.sh` all need them,
+      and they can only be resolved here, on a login node with the mirror.
+- [ ] If you keep the envs off the project filesystem, pass the location and use
+      the **same** value for every runner — the two must agree or the wrappers
+      look for an env `setup_envs_HPC.sh` never wrote:
+      ```bash
+      export VENV_ROOT=/gpfs/scratch/$USER/eval-venvs
+      ./setup_envs_HPC.sh            # or: ./setup_envs_HPC.sh --venv-root "$VENV_ROOT"
+      ./run_all.sh                   # same shell -> same VENV_ROOT
+      ```
+      Export it in the SLURM script too; a job script does not inherit your
+      interactive shell.
 - [ ] Run each benchmark's own test suite once envs exist, to catch a bad
       resolution before you're mid-SLURM-job:
       ```bash

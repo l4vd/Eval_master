@@ -108,6 +108,14 @@ All three are thin shell wrappers that resolve `Eval_master/.venv` (honouring
 can always call the module directly instead. Pick the one that matches how much of the
 pipeline you want to run:
 
+> **If a wrapper cannot find its interpreter it now fails, naming the path it looked
+> under and the current `$VENV_ROOT`.** It used to fall through to a bare `python`, so on
+> the cluster the failure surfaced as an unattributable `: No such file or directory` out
+> of `exec`. The usual cause is a `$VENV_ROOT` exported in the shell (or SLURM script)
+> that `setup_envs_HPC.sh` was *not* run with: the wrappers then look under
+> `$VENV_ROOT/Eval_master` while the envs sit in-repo. Keep the two in sync (both accept
+> `--venv-root`), or `unset VENV_ROOT`.
+
 | Script                                             | Runs                                                                                    | Skip this if...                                                               |
 | -------------------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | **[`run_analysis.sh`](run_analysis.sh)**           | aggregate → compare → plot (everything)                                                 | you just want numbers, not figures — use `run_eval_ensemble.sh`               |

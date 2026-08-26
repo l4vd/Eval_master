@@ -6,10 +6,13 @@
 # conf/config.yaml), so after this script `./run_all.sh` needs no extra flags.
 #
 # Usage:
-#   ./setup_envs.sh                      # envs in <benchmark>/.venv (Linux / cluster)
-#   ./setup_envs.sh --hpc                # pinned cluster stack (pyproject-HPC.toml)
-#   ./setup_envs.sh --venv-root DIR      # envs in DIR/<benchmark> instead
-#   VENV_ROOT=DIR ./setup_envs.sh        # same, via the environment
+#   ./setup_envs_local.sh                      # envs in <benchmark>/.venv
+#   ./setup_envs_local.sh --hpc                # pinned cluster stack (pyproject-HPC.toml)
+#   ./setup_envs_local.sh --venv-root DIR      # envs in DIR/<benchmark> instead
+#   VENV_ROOT=DIR ./setup_envs_local.sh        # same, via the environment
+#
+# On the cluster prefer ./setup_envs_HPC.sh: --hpc here swaps in pyproject-HPC.toml
+# but keeps each committed uv.lock, which was resolved against the *unpinned* deps.
 #
 # Each benchmark is installed with `uv sync` from its committed uv.lock, so every
 # machine gets the identical dependency stack (this is what keeps runs comparable
@@ -21,13 +24,11 @@
 # (e.g. under OneDrive): `<benchmark>/.venv/Lib/site-packages/...` then exceeds the
 # 260-character MAX_PATH limit and imports fail. Export the same VENV_ROOT before
 # ./run_all.sh, or set `venv_root=DIR` on its command line. Suggested value:
-#   ./setup_envs.sh --venv-root "$LOCALAPPDATA/eval-venvs"
+#   ./setup_envs_local.sh --venv-root "$LOCALAPPDATA/eval-venvs"
 #
 # Requires `uv` (module load uv/0.10.2 on the cluster).
 
 set -euo pipefail
-
-uv
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BENCHMARKS=(FaithEval-reproduce TruthfulQA-reproduce HaluEval-reproduce RAGTruth-reproduce harness-eval)
@@ -80,7 +81,10 @@ fi
 
 # `uv sync` (not `uv pip install`) so the committed uv.lock is honoured, same as
 # every benchmark below.
-(cd "${SCRIPT_DIR}" && UV_PROJECT_ENVIRONMENT="${LAUNCHER_VENV}" uv sync --extra dev)
+# `stats` (scipy) and `plot` (matplotlib) are lazy imports in analysis.stats /
+# analysis.plot, but not optional in practice: --analyze, run_analysis.sh and
+# run_plots.sh all need them. Same set as setup_envs_HPC.sh installs.
+(cd "${SCRIPT_DIR}" && UV_PROJECT_ENVIRONMENT="${LAUNCHER_VENV}" \n    uv sync --extra dev --extra stats --extra plot)
 
 for bench in "${BENCHMARKS[@]}"; do
     folder="${SCRIPT_DIR}/${bench}"

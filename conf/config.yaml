@@ -27,7 +27,8 @@ run: [faitheval, truthfulqa, halueval, ragtruth, harness]
 num_samples: null
 
 # Interpreter used to launch each benchmark. `auto` resolves each benchmark's own
-# virtualenv (created by ./setup_envs.sh) — the five have incompatible dependency
+# virtualenv (created by ./setup_envs_HPC.sh / ./setup_envs_local.sh) — the five have
+# incompatible dependency
 # stacks, so they are installed separately. Override globally with `python=...`
 # (e.g. `python=python` for one shared env) or per-benchmark with
 # `<benchmark>.python=/path/to/python`.
@@ -40,7 +41,9 @@ python: auto
 # when this repo sits deep in the filesystem: `.venv/Lib/site-packages/...` then
 # exceeds the 260-character MAX_PATH limit and imports fail with a confusing
 # "No such file or directory". It also keeps multi-GB installs out of OneDrive.
-# Pass the same value to ./setup_envs.sh (or set the VENV_ROOT env var), e.g.:
+# Pass the same value to setup_envs_HPC.sh / setup_envs_local.sh (--venv-root DIR, or
+# the VENV_ROOT env var). The two MUST agree: this is where the runners look, and
+# setup_envs_*.sh is what puts the envs there. E.g.:
 #   venv_root: ${oc.env:LOCALAPPDATA}/eval-venvs
 venv_root: ${oc.decode:${oc.env:VENV_ROOT,null}}
 

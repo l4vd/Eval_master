@@ -154,7 +154,8 @@ def _resolve_interpreter(spec, folder: Path, venv_root, *, dry_run: bool) -> str
     searched = "\n".join(f"    - {c}" for c in candidates)
     msg = (
         f"No virtualenv found for {folder.name}. Searched:\n{searched}\n"
-        f"  Run ./setup_envs.sh to create the per-benchmark environments, or pass an "
+        f"  Run ./setup_envs_HPC.sh (cluster) or ./setup_envs_local.sh to create the "
+        f"per-benchmark environments, or pass an "
         f"explicit interpreter (e.g. python=python)."
     )
     if dry_run:

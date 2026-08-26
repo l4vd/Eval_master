@@ -11,7 +11,8 @@ per-benchmark config group and translates them into each benchmark's own CLI.
 
 ```
 run_all.sh              # shell wrapper (forwards Hydra overrides)
-setup_envs.sh           # one-time: creates a virtualenv per benchmark
+setup_envs_local.sh     # one-time: creates a virtualenv per benchmark
+setup_envs_HPC.sh       #   same, pinned to the cluster stack (pyproject-HPC.toml)
 run_benchmarks.py       # Hydra launcher: composes config → subprocess per benchmark
 conf/
 ├── config.yaml         # composition root: model + the five benchmark groups + run list
@@ -27,17 +28,22 @@ conf/
 
 ## Install
 
-The four benchmarks have incompatible dependency stacks, so each gets its own
-virtualenv. `./setup_envs.sh` creates them all (plus one for the launcher) with
-`uv sync`, honouring each folder's committed `uv.lock` so the stack is identical on
-every machine:
+The five benchmarks have incompatible dependency stacks, so each gets its own
+virtualenv (plus one for the launcher itself). `uv sync` builds them, honouring each
+folder's committed `uv.lock` so the stack is identical on every machine:
 
 ```bash
-./setup_envs.sh                  # envs at <benchmark>/.venv
-./setup_envs.sh --hpc            # pinned cluster stack (pyproject-HPC.toml)
+./setup_envs_local.sh            # envs at <benchmark>/.venv
+./setup_envs_HPC.sh              # cluster: pinned pyproject-HPC.toml stack, fresh resolve
 ```
 
 `run_all.sh` then finds each interpreter automatically — no flags needed.
+
+The benchmark envs get `--extra dev`; the **launcher** env additionally gets
+`--extra stats --extra plot`, because `analysis.stats` (scipy) and `analysis.plot`
+(matplotlib) are lazy imports but not optional in practice — `--analyze`,
+`run_analysis.sh` and `run_plots.sh` all need them, and on the cluster they can only be
+resolved on a login node.
 
 > **Windows / OneDrive:** if this repo sits deep in the filesystem, an in-repo
 > `.venv` overflows the 260-character `MAX_PATH` limit and imports fail with a
@@ -46,7 +52,7 @@ every machine:
 > somewhere short instead, and point the launcher at them:
 >
 > ```bash
-> ./setup_envs.sh --venv-root "$LOCALAPPDATA/eval-venvs"
+> ./setup_envs_local.sh --venv-root "$LOCALAPPDATA/eval-venvs"
 > export VENV_ROOT="$LOCALAPPDATA/eval-venvs"   # or: ./run_all.sh venv_root=...
 > ```
 >
@@ -188,7 +194,8 @@ table of what ran (and pass/fail) prints at the end.
 
 ## Separate environments per benchmark
 
-`./setup_envs.sh` (see [Install](#install)) gives each benchmark its own virtualenv
+`./setup_envs_local.sh` / `./setup_envs_HPC.sh` (see [Install](#install)) give each
+benchmark its own virtualenv
 and `python: auto` finds them, so this normally needs no attention. To override:
 
 ```bash
@@ -200,7 +207,7 @@ and `python: auto` finds them, so this normally needs no attention. To override:
 ```
 
 Dependency versions are capped at major boundaries and pinned in a per-benchmark
-`uv.lock`. Install with `uv sync` (what `setup_envs.sh` does) rather than a bare
+`uv.lock`. Install with `uv sync` (what `setup_envs_*.sh` does) rather than a bare
 `pip install`, or you will silently get a different stack than the one your earlier
 runs used — `transformers>=4.44` alone now resolves to 5.x, which this code does
 not target.
@@ -208,7 +215,7 @@ not target.
 ## HPC
 
 The launcher itself is stack-agnostic — it only shells out and needs Hydra —
-but `./setup_envs.sh --hpc` also swaps *its own* `pyproject.toml` for
+but `./setup_envs_HPC.sh` also swaps *its own* `pyproject.toml` for
 `pyproject-HPC.toml` (pinned to the cluster's Python 3.12), same as every
 benchmark. Install each benchmark from its `pyproject-HPC.toml` (see each
 folder's README "Install (HPC)"), pre-download models/detector into the HF
