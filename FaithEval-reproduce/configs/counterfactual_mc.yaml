@@ -1,0 +1,17 @@
+# Task config for FaithEval-counterfactual-v1.0 scored as MULTIPLE CHOICE (a modified protocol).
+# Same dataset, same prompt as counterfactual.yaml; nothing is generated. Each option in
+# `choices` is scored by its summed log-probability as the model's answer to that prompt:
+# `accuracy` takes the likeliest option, `accuracy_norm` the likeliest per character
+# (lm-eval's acc_norm). With no answer parser, verbosity cannot move the score the way it
+# drives `counterfactual`'s exact match to zero (analysis/format_confound.md §3.1). Report it
+# beside `counterfactual`, never instead of it.
+dataset_name: Salesforce/FaithEval-counterfactual-v1.0
+scoring: choice_loglik
+
+# no task specific instruction is added, exactly as in counterfactual.yaml
+
+context_column: context
+question_column: question
+answer_column: answer
+choices_column: choices
+answer_key_column: answerKey

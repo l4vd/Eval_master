@@ -13,6 +13,7 @@ pipeline); an adapter is auto-detected and merged onto its base model.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 from pathlib import Path
@@ -46,6 +47,17 @@ _DTYPE_BY_NAME = {
 # impractical, and a judge that has not said Yes/No within 128 tokens is not truncated,
 # it is refusing. Raise it for reasoning models that think before answering.
 DEFAULT_MAX_NEW_TOKENS = {"chat_template": 128, "concat": 16}
+
+# The spellings `verdict_logprobs` pools for each verdict: the word the judge prompts ask for,
+# in title, lower and upper case, bare or after one space. Which variant is a model's first
+# answer token depends on the prompt format: after a chat template's assistant header it is
+# "Yes", after the flat prompt's "#Your Judgement#:" it is " Yes". They are matched against
+# each vocabulary token's DECODED text (`_resolve_verdict_tokens`), so every token id is
+# pooled once however many spellings decode to it.
+VERDICT_SPELLINGS = {
+    "yes": ("Yes", " Yes", "yes", " yes", "YES", " YES"),
+    "no": ("No", " No", "no", " no", "NO", " NO"),
+}
 
 
 def _looks_like_local_path(model_id: str) -> bool:
@@ -87,6 +99,41 @@ def _chat_template_ids(encoded):
     if encoded and isinstance(encoded[0], (list, tuple)):
         encoded = encoded[0]
     return encoded
+
+
+def _resolve_verdict_tokens(tokenizer) -> tuple[dict[str, list[int]], dict[str, list[str]]]:
+    """Token ids, and their raw vocabulary tokens, of every single token spelling each verdict.
+
+    Scans the vocabulary instead of encoding each spelling. `encode` collapses spellings onto
+    one id wherever the tokenizer inserts its own word-boundary marker (SentencePiece encodes
+    "Yes" and " Yes" both as "▁Yes"), and it never reaches the unmarked piece "Yes" that
+    follows other text. A token counts when its decoded text is exactly one of
+    `VERDICT_SPELLINGS`, so every id is pooled once, and "Yesterday", "no." or "\\nno" are not.
+    The raw tokens ("ĠYes", "▁Yes") are what gets recorded: unlike decoded text, they are
+    unique per id.
+    """
+    special = set(getattr(tokenizer, "all_special_ids", None) or [])
+    found: dict[str, dict[int, str]] = {verdict: {} for verdict in VERDICT_SPELLINGS}
+    for token, token_id in tokenizer.get_vocab().items():
+        if token_id in special:
+            continue
+        # Cheap prefilter before decoding: ASCII letters keep their own characters in the raw
+        # token of every HF vocabulary (only a bytes-keyed vocabulary is decoded unfiltered).
+        if isinstance(token, str) and "yes" not in token.lower() and "no" not in token.lower():
+            continue
+        text = tokenizer.decode([token_id])
+        for verdict, spellings in VERDICT_SPELLINGS.items():
+            if text in spellings:
+                found[verdict][int(token_id)] = token if isinstance(token, str) else text
+    ids = {verdict: sorted(tokens) for verdict, tokens in found.items()}
+    return ids, {verdict: [found[verdict][i] for i in ids[verdict]] for verdict in found}
+
+
+def _forward_accepts(model, name: str) -> bool:
+    try:
+        return name in inspect.signature(model.forward).parameters
+    except (TypeError, ValueError):
+        return False
 
 
 def _is_peft_adapter(model_path: str) -> bool:
@@ -207,6 +254,9 @@ class HFChatGenerator:
         tokenizer.padding_side = "left"
 
         self.tokenizer = tokenizer
+        # Resolved once. Only `verdict_logprobs` uses them, and it is what raises when a
+        # tokenizer has no single-token verdict: a generate-only run never needs one.
+        self.verdict_token_ids, self._verdict_spellings = _resolve_verdict_tokens(tokenizer)
         # The judge prompt is rendered with the model's own chat template, so the wire
         # format matches what it was tuned on. A base (non-instruct) model has no
         # template; `generate` falls back to a plain concatenation rather than failing.
@@ -255,19 +305,28 @@ class HFChatGenerator:
 
         Costs one CPU tokenizer pass over the split — seconds against a multi-hour GPU run.
         """
+        return [len(ids) for ids in self.prompt_token_ids(requests)]
+
+    def prompt_token_ids(self, requests: list[tuple[list[dict[str, str]], str]]) -> list[list[int]]:
+        """Token ids of each judge prompt, rendered as `generate_many` renders it.
+
+        Shared by `prompt_token_lengths` (the sort key) and `verdict_logprobs` (the scored
+        prefill), so the length the batches are cut on and the prompt the constrained
+        scorer reads are the same tokens.
+        """
         if not requests:
             return []
 
         if not self._has_chat_template:
             prompts = [completion_prompt for _, completion_prompt in requests]
             encoded = self.tokenizer(prompts, add_special_tokens=False)["input_ids"]
-            return [len(ids) for ids in encoded]
+            return [list(ids) for ids in encoded]
 
         # `apply_chat_template` is per-conversation, so this cannot be batched. The
         # add_generation_prompt=True matches what TextGenerationPipeline applies internally
         # when it is handed message lists.
         return [
-            len(
+            list(
                 _chat_template_ids(
                     self.tokenizer.apply_chat_template(
                         messages, tokenize=True, add_generation_prompt=True
@@ -323,3 +382,65 @@ class HFChatGenerator:
             batch_size=self.batch_size,
         )
         return [out[0]["generated_text"][-1]["content"].strip() for out in outputs]
+
+    # --- Constrained (prefill-only) scoring ---------------------------------------
+
+    @property
+    def verdict_tokens(self) -> dict[str, list[str]]:
+        """The raw vocabulary tokens `verdict_logprobs` pools, one per id — recorded in the constrained summary."""
+        return {verdict: list(texts) for verdict, texts in self._verdict_spellings.items()}
+
+    @torch.no_grad()
+    def last_token_logprobs(self, requests: list[tuple[list[dict[str, str]], str]]) -> torch.Tensor:
+        """Float32 log-softmax over the vocabulary at each prompt's last position.
+
+        One left-padded forward pass over the whole batch, on RAW logits: the pipeline's
+        logits processors (the checkpoint's `repetition_penalty`, for one) are deliberately
+        not applied, so this is the model's own next-token distribution. Returned on CPU,
+        one row per request, in input order.
+        """
+        model = self._generator.model
+        sequences = self.prompt_token_ids(requests)
+        width = max(len(ids) for ids in sequences)
+        input_ids = torch.full((len(sequences), width), self.tokenizer.pad_token_id, dtype=torch.long)
+        attention_mask = torch.zeros((len(sequences), width), dtype=torch.long)
+        for row, ids in enumerate(sequences):
+            input_ids[row, width - len(ids):] = torch.tensor(ids, dtype=torch.long)
+            attention_mask[row, width - len(ids):] = 1
+        # generate() derives positions from the mask; a plain forward does not, so without
+        # this every left-padded prompt would be read at shifted positions.
+        position_ids = (attention_mask.cumsum(-1) - 1).clamp(min=0)
+        kwargs = {}
+        # Only the last position's logits are needed; newer transformers can skip the rest.
+        for name in ("logits_to_keep", "num_logits_to_keep"):
+            if _forward_accepts(model, name):
+                kwargs[name] = 1
+                break
+        device = model.device
+        logits = model(
+            input_ids=input_ids.to(device), attention_mask=attention_mask.to(device),
+            position_ids=position_ids.to(device), use_cache=False, **kwargs,
+        ).logits
+        return torch.log_softmax(logits[:, -1, :].float(), dim=-1).cpu()
+
+    def verdict_logprobs(self, requests: list[tuple[list[dict[str, str]], str]]) -> list[tuple[float, float]]:
+        """``(logP("Yes"), logP("No"))`` for the judge's first answer token, per request.
+
+        Each verdict's probability is pooled (logsumexp) over every vocabulary token spelling it
+        (`VERDICT_SPELLINGS`), each id once, so a model that answers " Yes" or "YES" is not
+        scored as if it put no mass on "Yes". Nothing is decoded: this is one prefill, and the judgement is
+        the argmax of the two, scored threshold-free by AUROC downstream.
+        """
+        if not requests:
+            return []
+        yes_ids, no_ids = self.verdict_token_ids["yes"], self.verdict_token_ids["no"]
+        if not yes_ids or not no_ids:
+            raise ValueError(
+                "constrained scoring needs a single-token spelling of both verdicts, but this "
+                f"tokenizer has yes={self.verdict_tokens['yes']} no={self.verdict_tokens['no']} "
+                f"(candidates: {VERDICT_SPELLINGS})"
+            )
+        logprobs = self.last_token_logprobs(requests)
+        yes = torch.logsumexp(logprobs[:, yes_ids], dim=-1)
+        no = torch.logsumexp(logprobs[:, no_ids], dim=-1)
+        return [(float(y), float(n)) for y, n in zip(yes.tolist(), no.tolist())]

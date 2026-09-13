@@ -3,6 +3,12 @@
 enabled: true
 python: null                 # null => use the global `python`
 tasks: [unanswerable, inconsistent, counterfactual]
+# Modified protocol, opt-in: list `counterfactual_mc` to score the counterfactual split as
+# multiple choice — the log-likelihood of each answer option under the same prompt, with no
+# decoding and no answer parser (configs/counterfactual_mc.yaml). Minutes per checkpoint.
+# Writes counterfactual_mc_{predictions.jsonl,summary.json}; the analysis reports it as
+# `faitheval.mc`. Run it into $EVAL_ROOT_MOD, never next to the original tasks, e.g.
+#   'faitheval.tasks=[counterfactual_mc]'
 split: test
 strict_match: false          # use each task's strict valid-phrase list
 num_samples: null            # null => use the global `num_samples`

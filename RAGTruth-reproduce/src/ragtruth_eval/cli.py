@@ -5,6 +5,11 @@ Usage:
         --model-id meta-llama/Meta-Llama-3-8B-Instruct \
         --detector-model-id CodingLL/RAGTruth_Eval
 
+    # many checkpoints: generate per checkpoint, then one detector load for all of them
+    python src/run_eval.py --stage generate --model-id <ckpt> --split test --batch-size 8 --output-dir <run>/ragtruth
+    python src/run_eval.py --stage detect --output-dirs '<root>/*/seed_*/ragtruth' \
+        --detector-model-id <detector> --detector-batch-size 4 --detector-seed 42
+
 or, once installed (`pip install -e .`):
     ragtruth-eval --stage all --model-id <gen> --detector-model-id <detector>
 """
@@ -21,6 +26,8 @@ from ragtruth_eval.model import GenerationParams
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DATASET_DIR = REPO_ROOT / "dataset"
 
+logger = logging.getLogger(__name__)
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -34,6 +41,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="Directory holding source_info.jsonl (+ response.jsonl).")
     parser.add_argument("--output-dir", default="outputs/run",
                         help="Directory for generations.jsonl / detections.jsonl / summary.json.")
+    parser.add_argument("--output-dirs", nargs="+", default=None, metavar="DIR",
+                        help="--stage detect only: run Stage 2 over several run directories (globs "
+                             "accepted) with ONE detector load. Directories that already have a "
+                             "summary.json are skipped, so the job can simply be re-submitted.")
 
     # Generation model (Stage 1) — your own checkpoint / LoRA.
     parser.add_argument("--model-id", default=None,
@@ -61,7 +72,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     # Data selection.
     parser.add_argument("--split", default=None,
                         help="Filter source items to this split (train/dev/test) via response.jsonl. "
-                             "Omit or 'all' for the whole source_info.jsonl.")
+                             "Omit or 'all' for the whole source_info.jsonl — which includes the "
+                             "release's train sources (a warning is logged).")
     parser.add_argument("--num-samples", type=int, default=None, help="Use only the first N items.")
     parser.add_argument("--task-types", nargs="+", default=None, choices=list(TASK_TYPES),
                         help="Restrict to these task types (QA / Summary / Data2txt).")
@@ -72,6 +84,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--temperature", type=float, default=None)
     parser.add_argument("--top-p", type=float, default=None)
     parser.add_argument("--top-k", type=int, default=None)
+    parser.add_argument("--batch-size", type=int, default=1,
+                        help="Stage 1 prompts per generate() call: left-padded, longest first, "
+                             "written back in dataset order. Keep it fixed across compared models "
+                             "(recorded in generation_summary.json).")
+
+    # Stage 2 batching and seeding.
+    parser.add_argument("--detector-batch-size", type=int, default=1,
+                        help="Detector prompts per generate() call (recorded in summary.json).")
+    parser.add_argument("--detector-seed", type=int, default=None,
+                        help="Seed applied before each run directory's detection (the detector "
+                             "samples). Unset leaves it unseeded, as upstream. Recorded in summary.json.")
 
     # Gold-F1 reproduction mode (detector vs. the corpus's original responses/labels).
     parser.add_argument("--gold-f1", action="store_true",
@@ -84,6 +107,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if (args.temperature is not None or args.top_p is not None or args.top_k is not None) and not args.do_sample:
         parser.error("--temperature/--top-p/--top-k require --do-sample")
+    if args.output_dirs and (args.stage != "detect" or args.gold_f1):
+        parser.error("--output-dirs is for --stage detect over generated run directories (not --gold-f1)")
+    if args.batch_size < 1 or args.detector_batch_size < 1:
+        parser.error("--batch-size and --detector-batch-size must be >= 1")
     return args
 
 
@@ -114,6 +141,11 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit("--model-id is required for the generate stage")
     if run_detect and not args.detector_model_id:
         raise SystemExit("--detector-model-id is required for the detect stage")
+    if run_generate and args.split in (None, "all"):
+        logger.warning(
+            "--split %s generates for all 2,965 release sources, including RAG-Truth's train "
+            "sources, which a model trained on RAG-Truth has seen (SP-DPO-Base KNOWN_ISSUES.md "
+            "§5). Pass --split test for the 450 held-out ones.", args.split)
 
     # Imported lazily so `--help` / arg errors don't pay the torch import cost.
     if run_generate:
@@ -140,24 +172,36 @@ def main(argv: list[str] | None = None) -> None:
             task_types=task_types,
             system_prompt=args.system_prompt,
             gen_params=gen_params,
+            batch_size=args.batch_size,
         )
 
     if run_detect:
-        from ragtruth_eval.detect import run_detection
+        from ragtruth_eval.detect import run_detection, run_detection_job
 
-        summary = run_detection(
-            output_dir=args.output_dir,
+        detector = dict(
             detector_model_id=args.detector_model_id,
             base_model_id=args.detector_base_model_id,
             tokenizer_id=args.detector_tokenizer_id,
             cache_dir=args.cache_dir,
             device_map=args.device_map,
             dtype=args.dtype,
+            batch_size=args.detector_batch_size,
+            seed=args.detector_seed,
+        )
+        if args.output_dirs:
+            for out_dir, summary in run_detection_job(args.output_dirs, **detector):
+                print(f"\n##### {out_dir}")
+                _print_summary(summary)
+            return
+
+        summary = run_detection(
+            output_dir=args.output_dir,
             gold_f1_mode=args.gold_f1,
             dataset_dir=args.dataset_dir,
             split=args.split or "test",
             num_samples=args.num_samples,
             task_types=task_types,
+            **detector,
         )
         _print_summary(summary)
         print(f"\nSummary written to {Path(args.output_dir) / 'summary.json'}")

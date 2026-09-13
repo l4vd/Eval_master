@@ -231,19 +231,27 @@ class HFChatGenerator:
 
         Costs one CPU tokenizer pass over the split — seconds against a multi-hour GPU run.
         """
+        return [len(ids) for ids in self.prompt_token_ids(batch)]
+
+    def prompt_token_ids(self, batch: list[list[dict[str, str]]]) -> list[list[int]]:
+        """Token ids of each prompt, rendered exactly as `generate_many` renders it.
+
+        Shared by `prompt_token_lengths` (the sort key) and `choice_logprobs` (the scored
+        context), so both read the same tokens the generation path conditions on.
+        """
         if not batch:
             return []
 
         if not self._has_chat_template:
             prompts = ["\n\n".join(m["content"].strip() for m in messages) for messages in batch]
             encoded = self.tokenizer(prompts, add_special_tokens=False)["input_ids"]
-            return [len(ids) for ids in encoded]
+            return [list(ids) for ids in encoded]
 
         # `apply_chat_template` is per-conversation, so this cannot be batched. The
         # add_generation_prompt=True matches what TextGenerationPipeline applies internally
         # when it is handed message lists.
         return [
-            len(
+            list(
                 _chat_template_ids(
                     self.tokenizer.apply_chat_template(
                         messages, tokenize=True, add_generation_prompt=True
@@ -284,3 +292,52 @@ class HFChatGenerator:
         # Passing message lists makes the pipeline apply the tokenizer's template.
         outputs = self._generator(list(batch), batch_size=self.batch_size, **kwargs)
         return [out[0]["generated_text"][-1]["content"].strip() for out in outputs]
+
+    @torch.no_grad()
+    def choice_logprobs(
+        self, messages_batch: list[list[dict[str, str]]], choices_batch: list[list[str]]
+    ) -> list[list[tuple[float, int, int]]]:
+        """``(sum log-probability, n_tokens, n_chars)`` of every option as its prompt's answer.
+
+        The context is rendered exactly as `prompt_token_lengths` renders it. An option is
+        tokenized on its own, without special tokens: bare after a chat template's assistant
+        header, after one space in the concatenation format, where it follows "Answer:" on
+        the same line. Sequences are right-padded — with causal attention, padding after a
+        sequence cannot change its logits, so no position ids are needed — and scored in
+        forward passes of `batch_size` sequences, the memory a generation batch of the same
+        size takes. Only the option positions are log-softmaxed, in float32.
+        """
+        contexts = self.prompt_token_ids(messages_batch)
+        lead = "" if self._has_chat_template else " "
+        flat: list[tuple[int, int, list[int], list[int], int]] = []
+        for i, (context, choices) in enumerate(zip(contexts, choices_batch)):
+            for j, text in enumerate(choices):
+                continuation = list(self.tokenizer(lead + text, add_special_tokens=False)["input_ids"])
+                if not continuation:
+                    raise ValueError(f"option {j} of prompt {i} tokenizes to nothing: {text!r}")
+                flat.append((i, j, context, continuation, len(text)))
+
+        out: list[list[tuple[float, int, int]]] = [[(0.0, 0, 0)] * len(c) for c in choices_batch]
+        model = self._generator.model
+        pad_id = self.tokenizer.pad_token_id
+        for start in range(0, len(flat), self.batch_size):
+            part = flat[start : start + self.batch_size]
+            width = max(len(context) + len(cont) for _, _, context, cont, _ in part)
+            input_ids = torch.full((len(part), width), pad_id, dtype=torch.long)
+            attention_mask = torch.zeros((len(part), width), dtype=torch.long)
+            for row, (_, _, context, cont, _) in enumerate(part):
+                sequence = context + cont
+                input_ids[row, : len(sequence)] = torch.tensor(sequence, dtype=torch.long)
+                attention_mask[row, : len(sequence)] = 1
+            logits = model(
+                input_ids=input_ids.to(model.device),
+                attention_mask=attention_mask.to(model.device),
+                use_cache=False,
+            ).logits
+            for row, (i, j, context, cont, n_chars) in enumerate(part):
+                # The logits at position t predict token t + 1.
+                positions = torch.arange(len(context) - 1, len(context) + len(cont) - 1, device=logits.device)
+                logprobs = torch.log_softmax(logits[row, positions].float(), dim=-1)
+                targets = torch.tensor(cont, device=logits.device).unsqueeze(-1)
+                out[i][j] = (float(logprobs.gather(-1, targets).sum()), len(cont), n_chars)
+        return out

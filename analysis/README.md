@@ -30,8 +30,11 @@ run dirs ──discover──▶ (run_dir, seed) pairs ──parse──▶ Metr
 - [Declaring arms](#declaring-arms----arm-namespec)
 - [Reference arm & comparison regime](#reference-arm--comparison-regime)
 - [Benchmark selection](#benchmark-selection)
+- [Original and modified protocols](#original-and-modified-protocols)
 - [Overriding the primary metric](#overriding-the-primary-metric----primary-map)
 - [Generating runs first (`--run-evals`)](#generating-runs-first----run-evals)
+- [Train↔eval overlap and decontamination](#traineval-overlap-and-decontamination)
+- [RAG-Truth: shared detection job](#rag-truth-shared-detection-job)
 - [Outputs](#outputs)
 - [Key concepts](#key-concepts)
 - [Testing](#testing)
@@ -127,6 +130,11 @@ run_eval_checkpoints.sh = python -m analysis.eval_checkpoints   # checkpoints ->
 run_analysis.sh         = python -m analysis.cli
 run_eval_ensemble.sh    = python -m analysis.cli --no-plot
 run_plots.sh            = python -m analysis.plot
+
+# around the evals rather than part of the analysis pipeline
+run_overlap.sh          = python -m analysis.overlap              # train <-> eval overlap, exclusion lists
+run_decontam.sh         = score_results.py --exclude, per run     # finished HaluEval runs -> modified root
+run_ragtruth_detect.sh  = python -m analysis.ragtruth_detect      # one detector load for many run dirs
 ```
 
 ---
@@ -145,6 +153,7 @@ run_plots.sh            = python -m analysis.plot
 | `--python PATH`            | this interpreter   | Interpreter to run the launcher with.                                                      |
 | `--dry-run`                | off                | Print the planned launcher commands without loading any model.                             |
 | `--stop-on-error`          | off                | Abort on the first failed seed (default: keep going; a partial ensemble still aggregates). |
+| `--resume`                 | off                | Skip seeds whose requested benchmarks all wrote their summary. The `--launcher-extra` overrides decide which summary counts: `halueval.scoring=constrained` needs `*_constrained_summary.json`, `faitheval.tasks=[counterfactual_mc]` needs `counterfactual_mc_summary.json`, `ragtruth.stage=generate` needs `generation_summary.json`. |
 | `--launcher-extra ...`     | none               | Extra Hydra overrides forwarded to the launcher. **Must be last** (`nargs=REMAINDER`).     |
 | `--analyze`                | off                | After evaluating, chain into `analysis.cli` on the produced ensemble.                      |
 | `--name NAME`              | `dpo`              | Arm name for the produced ensemble when `--analyze`.                                       |
@@ -161,16 +170,18 @@ run_plots.sh            = python -m analysis.plot
 
 | Flag                    | Default                  | Meaning                                                                                          |
 | ----------------------- | ------------------------ | ------------------------------------------------------------------------------------------------ |
-| `--arm NAME=SPEC`       | — (required, repeatable) | Declare one arm. See [Declaring arms](#declaring-arms----arm-namespec).                          |
+| `--arm NAME=SPEC`       | — (required, repeatable) | Declare one arm; repeating a NAME merges its specs (an arm's original and modified roots). See [Declaring arms](#declaring-arms----arm-namespec). |
 | `--out DIR`             | `outputs/analysis`       | Where results are written.                                                                       |
 | `--reference NAME`      | auto                     | Arm every other arm is compared against. See [Reference arm](#reference-arm--comparison-regime). |
-| `--benchmarks a,b,c`    | all present              | Include-list of benchmark folders.                                                               |
-| `--exclude a,b`         | none                     | Exclude-list, applied after include.                                                             |
+| `--benchmarks a,b,c`    | all present              | Include-list. A base name (`halueval`) also selects its modified variants; a dotted name (`halueval.constrained`) selects that one only. |
+| `--exclude a,b`         | none                     | Exclude-list, applied after include (same matching).                                             |
+| `--protocol P`          | `both`                   | Which trees to write: `original` → `--out` (the usual layout), `modified` → `--out/modified/`, or `both`. See [protocols](#original-and-modified-protocols). |
 | `--no-compare`          | off                      | Aggregate only; skip cross-arm comparison.                                                       |
 | `--no-plot`             | off                      | Skip figures (no matplotlib needed). _(`run_eval_ensemble.sh` always sets this.)_                |
 | `--allow-seed-mismatch` | off                      | Paired mode intersects shared seeds instead of failing loudly on a mismatch.                     |
 | `--primary-map FILE`    | built-in                 | YAML/JSON overriding the primary-metric-per-benchmark map.                                       |
 | `--rng-seed N`          | `0`                      | Bootstrap RNG seed (reproducible CIs).                                                           |
+| `--mc-method M`         | `holm`                   | Multiplicity correction across the paired family: `holm`, `bh` or `none`.                         |
 | `--run-evals`           | off                      | Drive the Hydra launcher first to produce run dirs. Requires `--models`.                         |
 | `--models id1,id2`      | —                        | Comma-separated model ids for `--run-evals`.                                                     |
 | `--eval-sweep-dir DIR`  | `outputs/analysis_sweep` | Hydra `sweep.dir` for `--run-evals`.                                                             |
@@ -186,6 +197,40 @@ run_plots.sh            = python -m analysis.plot
 | `--reference NAME` | none             | Reference label for delta plots.                                         |
 | `--benchmarks a,b` | all              | Include-list.                                                            |
 | `--exclude a,b`    | none             | Exclude-list.                                                            |
+| `--protocol P`     | `both`           | Plot only `original` or only `modified` benchmarks.                      |
+
+### `run_overlap.sh` (→ `analysis.overlap`)
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--train NAME=SPEC` | `ragtruth=<SP-DPO-Base>/data/ragtruth` | Training corpus, repeatable: a `data/ragtruth` dir, or `jsonl:PATH:field,field[:group_field]` (PATH may be a glob). |
+| `--train-run-config PATH` | none | A training run's `.hydra/config.yaml`; flags `halueval*` / `truthfulqa*` data as identity overlap. Repeatable. |
+| `--harness-samples PATH` | none | A harness `samples.jsonl`, to check all 817 TruthfulQA items (the local CSV has 790). |
+| `--benchmarks a,b` | all five | Subset of `halueval,faitheval,truthfulqa,harness,ragtruth_benchmark`. |
+| `--ragtruth-split S` | `test` | RAG-Truth benchmark split to tier; the `all` identity counts are reported too. |
+| `--ngram` `--near-dup` `--df-max` `--exposure-topk` | `13` `0.5` `10` `3` | Matching parameters. Keep the defaults: `KNOWN_ISSUES.md` §5 was measured with them. |
+| `--out DIR` | `outputs/overlap` | Report: `<DIR>/<train>/overlap_report.{json,md}`. |
+| `--write-exclusions` | off | Also write `<exclusions-dir>/<train>/<benchmark>__<task>.json` for every non-empty list, beside a copy of the report. |
+| `--exclusions-dir DIR` | `decontamination` | Where those go (committed). |
+
+### `run_decontam.sh`
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--root DIR` | — (required) | Eval root with finished `<arm>/<run>/halueval/*_results.json`. Only read. |
+| `--out-root DIR` | — (required) | The modified-protocol root; must differ from `--root`. Gets `<arm>/<run>/halueval/*_decontam_summary.json` and `run_metadata.json`. |
+| `--list LIST.json` | every `decontamination/ragtruth/halueval__*.json` | Exclusion list(s), repeatable. |
+
+### `run_ragtruth_detect.sh` (→ `analysis.ragtruth_detect`)
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--root DIR` | — (required) | Eval root. Every `*/seed_*/ragtruth/` and `base/run_*/ragtruth/` with `generations.jsonl` and no `summary.json` is detected. |
+| `--dtype` | `bfloat16` | Detector dtype — match the eval block's `model.dtype`. |
+| `--detector-model-id` `--detector-base-model-id` `--detector-tokenizer-id` | `conf/ragtruth/default.yaml` | The detector. |
+| `--detector-batch-size N` `--detector-seed N` | conf (`4`, `42`) | Batching and the per-directory seed; both recorded in `summary.json`. |
+| `--dry-run` | off | List the pending run dirs and print the command. |
+| `--extra ...` | none | Raw flags for `run_eval.py` (**must be last**). |
 
 ---
 
@@ -254,6 +299,12 @@ unrecoverable seed stays `None`, and paired mode refuses to fabricate a seed ide
 --arm base=outputs/.../base_run!fixed                       # force fixed point
 ```
 
+**Repeating a name merges.** `--arm dpo=$EVAL_ROOT/dpo --arm dpo=$EVAL_ROOT_MOD/dpo` reads both
+roots as one arm; this is how an arm's original-protocol runs and its modified-protocol runs enter
+one call. The merged arm lists each seed once, and it is a fixed point only if every spec is one.
+It fails if two of its run dirs report the same metric for the same seed, which means the roots
+overlap.
+
 ## Reference arm & comparison regime
 
 | Flag               | Default | Meaning                                                                                                                                                         |
@@ -285,6 +336,13 @@ records what was actually corrected over).
 > minimum at which the test can reject at all; ten is where it has usable power. See
 > [`analysis_theory.md`](analysis_theory.md) §5.2.
 
+> **Read this before interpreting HaluEval or FaithEval `counterfactual` numbers.** Those
+> metrics are scored by length-sensitive parsers, and in the `v3` runs they track output
+> *format* almost perfectly: `corr(format_compliance, accuracy) = 0.9974`, with accuracy
+> among rows that parsed pinned at chance (0.4981 ± 0.0165) across all 132 files. Arm
+> rankings on those axes are compliance rankings. See
+> [`format_confound.md`](format_confound.md).
+
 `--allow-seed-mismatch` controls the paired-mode safety check:
 
 | Flag                    | Default behavior                                                                                                                 | With the flag                                                               |
@@ -298,7 +356,38 @@ records what was actually corrected over).
 | `--benchmarks a,b,c` | all present | Comma-separated **include** list; only these benchmark folders are parsed/plotted. |
 | `--exclude a,b`      | none        | Comma-separated **exclude** list, applied after include.                           |
 
-Benchmark names: `faitheval`, `truthfulqa`, `halueval`, `ragtruth`, `harness`.
+Benchmark names: `faitheval`, `truthfulqa`, `halueval`, `ragtruth`, `harness`, plus the modified
+variants below. A base name selects the benchmark **and** its variants (`--benchmarks halueval`
+keeps `halueval.constrained`); a dotted name selects exactly one variant.
+
+## Original and modified protocols
+
+A modified protocol is a scorer that departs from the published one. It runs only when switched
+on, and it is reported under its **own benchmark name**, so it can never be averaged into, compared
+with or plotted as an original number:
+
+| Benchmark name | Written by | Primary metric |
+| --- | --- | --- |
+| `halueval.constrained` | `evaluate.py --scoring constrained` (`*_constrained_summary.json`) | `auroc` (its SE in `stderr`) |
+| `halueval.decontam` | `score_results.py --exclude … --emit-summary`, or `run_decontam.sh` (`*_decontam_summary.json`) | `accuracy` on the kept rows; `seen_minus_clean` and per-row-set accuracies alongside |
+| `halueval.constrained_decontam` | the same, over constrained results | `auroc` |
+| `faitheval.mc` | `faitheval.tasks=[counterfactual_mc]` (`counterfactual_mc_summary.json`, `scoring: choice_loglik`) | `accuracy` (+ `accuracy_norm`) |
+
+**How a summary is routed.** The parser reads each summary's own `scoring` / `variant` field; a
+summary without either parses exactly as before. A dot in the benchmark name is the whole
+definition of "modified", so an old `records.jsonl` reloads as original.
+
+`analysis.cli` writes the two protocols to separate trees:
+
+- **original** → `--out/`, in the layout every existing call reads. Adding modified roots to a
+  call leaves these files byte-identical.
+- **modified** → `--out/modified/`: records, aggregate, comparisons, `.tex` tables carrying a
+  protocol row, and `figures/`. It is written only when there are modified records.
+  - An arm without modified runs has no row in this tree.
+  - If the reference arm has none, the tree skips its comparisons.
+
+`--protocol original|modified|both` chooses which trees to write. Modified comparisons form their
+own multiplicity family and are context only, whatever their p-value.
 
 ## Overriding the primary metric — `--primary-map`
 
@@ -312,6 +401,8 @@ and the main plots. The built-in defaults (from [`parse.py`](parse.py)):
 | ragtruth   | `overall` / `hallucination_rate`                              |
 | truthfulqa | `MC1`, `MC2`                                                  |
 | harness    | `truthfulqa_mc1` / `truthfulqa_mc2`, metric `acc`             |
+| halueval.constrained, halueval.constrained_decontam | per-task `auroc` |
+| halueval.decontam, faitheval.mc | per-task `accuracy` |
 
 Override with a YAML or JSON file: `--primary-map my_primary.yaml`. Shape:
 
@@ -345,6 +436,45 @@ python -m analysis.cli --run-evals --models ckptA,ckptB --reference model0 \
     --eval-extra run='[faitheval,harness]' num_samples=50
 ```
 
+## Train↔eval overlap and decontamination
+
+[`overlap.py`](overlap.py) indexes a training corpus (default: SP-DPO-Base's `data/ragtruth`) and
+tiers every row of every benchmark against it: `exact`, `near_duplicate` (≥ 50 % of the row's
+13-grams), `partial` or `none`. Each matched row also gets the strongest *exposure* of its matched
+sources: `train` > `val` > `test` > `release_only`. A missing benchmark file is listed as
+`not_checked`, never counted as zero overlap. `SP-DPO-Base/KNOWN_ISSUES.md` §5 is its report in
+prose, and `tests/test_overlap.py` pins the two together on the real data.
+
+```bash
+./analysis/run_overlap.sh --harness-samples outputs/eval/<arm>/seed_42/harness/samples.jsonl --write-exclusions
+```
+
+`--write-exclusions` writes the committed lists, each beside a copy of the report whose sha256 it
+records. Today there is one: `decontamination/ragtruth/halueval__summarization.json`, with 503
+excluded rows and 130 unseen-exposed controls. [`run_decontam.sh`](run_decontam.sh) applies the
+lists to finished runs without a GPU, writing `halueval.decontam` summaries into a **separate**
+root:
+
+```bash
+./analysis/run_decontam.sh --root "$EVAL_ROOT" --out-root "$EVAL_ROOT_MOD"
+./analysis/run_analysis.sh --arm dpo="$EVAL_ROOT/dpo" --arm dpo="$EVAL_ROOT_MOD/dpo" ...   # -> <out>/modified/
+```
+
+## RAG-Truth: shared detection job
+
+RAG-Truth's Stage 2 loads a 13B detector. For many checkpoints, run `ragtruth.stage=generate` per
+checkpoint, then detect once. Use `run_eval_checkpoints.sh --resume`, which for `stage=generate`
+waits for `generation_summary.json`:
+
+```bash
+./analysis/run_ragtruth_detect.sh --root "$EVAL_ROOT" --dtype bfloat16 --dry-run   # list pending dirs
+./analysis/run_ragtruth_detect.sh --root "$EVAL_ROOT" --dtype bfloat16
+```
+
+The job loads the detector once and skips every run dir that already has a `summary.json`, so
+re-submitting it resumes. Each dir gets `detections.jsonl` and `summary.json` exactly as
+`stage=all` would write them.
+
 ---
 
 ## Outputs
@@ -359,6 +489,7 @@ Written under `--out` (default `outputs/analysis/`):
 | `comparisons.json`        | if comparing | One row per arm-vs-reference comparison: regime, raw + signed delta, and the paired-test / one-sample block. |
 | `comparisons.tex`         | if comparing | LaTeX table: signed Δ + Wilcoxon p and family-adjusted p (paired) or CI (one-sample). Stars follow the adjusted p. |
 | `figures/*.png` + `*.pdf` | if plotting  | See below. Every figure is written as both a 150-dpi PNG and a vector PDF.                                   |
+| `modified/…`              | if there are modified records | The same files for the modified protocols, with a protocol row in each `.tex`. See [protocols](#original-and-modified-protocols). |
 
 ### Figures (`figures/`)
 
@@ -373,6 +504,9 @@ Written under `--out` (default `outputs/analysis/`):
 Arm colours come from the fixed **Okabe–Ito** colourblind-safe palette, assigned in a
 stable order so colour follows arm identity (never rank, never cycled). More than 8 arms
 fold to grey with a warning.
+
+A modified variant's figure names replace the dot with `__` (`halueval__constrained.png`), and its
+titles carry `[modified protocol]`.
 
 ---
 
@@ -401,6 +535,10 @@ dirs (each benchmark's real on-disk shape) that the suite parses:
 uv run --extra dev --extra stats pytest      # from Eval_master/
 ```
 
+One test is marked `slow`: `tests/test_overlap.py::test_real_data_reproduces_known_issues_section_5`.
+It reads the real SP-DPO-Base and benchmark data (~20 s) and is skipped when either is absent;
+`-m 'not slow'` leaves it out.
+
 ## Source map
 
 | File                                         | Role                                                                                                                                                                  |
@@ -415,5 +553,8 @@ uv run --extra dev --extra stats pytest      # from Eval_master/
 | [`stats.py`](stats.py)                       | Vendored bootstrap CI, one-sample summary, seed-aligned Wilcoxon, Holm/BH multiplicity adjustment.                                                                    |
 | [`plot.py`](plot.py)                         | Five matplotlib figure types; also a standalone re-plot entry point.                                                                                                  |
 | [`report.py`](report.py)                     | JSON / JSONL / LaTeX writers.                                                                                                                                         |
+| [`format_confound.md`](format_confound.md) | Why the `v3` HaluEval / FaithEval-counterfactual arm tables measure output shape rather than faithfulness, and what to report instead. |
 | [`fixtures.py`](fixtures.py)                 | Synthetic run-dir generators (used by the offline tests).                                                                                                             |
+| [`overlap.py`](overlap.py)                   | Train↔eval text-overlap checker: tiers, exposure, report, exclusion lists (stdlib only).                                                                             |
+| [`ragtruth_detect.py`](ragtruth_detect.py)   | The shared RAG-Truth detection job over an eval root (one detector load).                                                                                             |
 | [`cli.py`](cli.py)                           | `python -m analysis.cli` — ties it all together.                                                                                                                      |

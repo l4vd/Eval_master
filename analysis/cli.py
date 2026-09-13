@@ -31,6 +31,7 @@ from pathlib import Path
 
 from analysis.aggregate import aggregate_all
 from analysis.compare import compare_all
+from analysis.model import MODIFIED, ORIGINAL
 from analysis.plot import plot_all
 from analysis.report import write_aggregate, write_comparisons, write_records
 from analysis.spec import AnalysisConfig, ArmMeta, ArmSpec, build_records, parse_arm_arg
@@ -38,6 +39,8 @@ from analysis.stats import DEFAULT_MC_METHOD, MC_METHODS
 
 # The launcher lives one level up from this package.
 _LAUNCHER = Path(__file__).resolve().parents[1] / "run_benchmarks.py"
+
+PROTOCOL_CHOICES = (ORIGINAL, MODIFIED, "both")
 
 
 def default_reference(arm_meta: dict[str, ArmMeta]) -> str:
@@ -51,34 +54,71 @@ def default_reference(arm_meta: dict[str, ArmMeta]) -> str:
 
 
 def run_analysis(config: AnalysisConfig) -> dict[str, list[Path]]:
-    """Run the whole pipeline for one config; returns the written paths per artifact."""
+    """Run the whole pipeline for one config; returns the written paths per artifact.
+
+    Original-protocol records go to ``config.out`` in the same layout as always; records
+    of modified protocols (benchmark names with a variant suffix) go to a separate tree,
+    ``config.out/modified/``, written only when there are any. The two never share an
+    aggregate, a comparison family or a figure.
+    """
+    if config.protocol not in PROTOCOL_CHOICES:
+        raise ValueError(f"protocol must be one of {PROTOCOL_CHOICES}, got {config.protocol!r}")
     build = build_records(config)
     outdir = Path(config.out)
-    aggregates = aggregate_all(build.records, seed=config.rng_seed)
-
-    written: dict[str, list[Path]] = {
-        "records": [write_records(build.records, outdir / "records.jsonl")],
-        "aggregate": list(write_aggregate(aggregates, outdir).values()),
-    }
 
     # Resolved once, so the comparison step and the figures cannot disagree about which
     # arm is the reference: this used to resolve the default for compare_all but hand
     # plot_all the raw (possibly None) config value.
     reference = config.reference or default_reference(build.arm_meta)
 
+    written: dict[str, list[Path]] = {}
+    if config.protocol in (ORIGINAL, "both"):
+        written.update(_run_tree(config, build, build.records.by_protocol(ORIGINAL), outdir,
+                                 reference=reference, protocol=None))
+    modified = build.records.by_protocol(MODIFIED)
+    if config.protocol in (MODIFIED, "both") and modified:
+        tree = _run_tree(config, build, modified, outdir / MODIFIED,
+                         reference=reference, protocol=MODIFIED)
+        written.update({f"{MODIFIED}/{kind}": paths for kind, paths in tree.items()})
+    return written
+
+
+def _run_tree(config: AnalysisConfig, build, records, outdir: Path, *, reference: str,
+              protocol: str | None) -> dict[str, list[Path]]:
+    """Aggregate -> compare -> plot for one protocol's records into ``outdir``.
+
+    ``protocol`` is None for the original tree, whose artifacts stay byte-identical to
+    the pre-protocol layout; the modified tree labels its tables and figures.
+    """
+    aggregates = aggregate_all(records, seed=config.rng_seed)
+    written: dict[str, list[Path]] = {
+        "records": [write_records(records, outdir / "records.jsonl")],
+        "aggregate": list(write_aggregate(aggregates, outdir, protocol=protocol).values()),
+    }
+
+    arm_meta = build.arm_meta
+    if protocol is not None:
+        # An arm without modified-protocol runs simply has no row in this tree.
+        arm_meta = {name: meta for name, meta in arm_meta.items() if name in aggregates}
+
     comparisons = None
-    if config.compare and len(build.arm_meta) >= 2:
-        comparisons = compare_all(
-            aggregates, build.arm_meta, reference,
-            require_matched=config.require_matched, rng_seed=config.rng_seed,
-            mc_method=config.mc_method,
-        )
-        written["comparisons"] = list(write_comparisons(comparisons, outdir).values())
+    if config.compare and len(arm_meta) >= 2:
+        if protocol is not None and reference not in aggregates:
+            print(f"!! {outdir}: reference arm '{reference}' has no {protocol}-protocol "
+                  "records; skipping comparisons in this tree.")
+        else:
+            comparisons = compare_all(
+                aggregates, arm_meta, reference,
+                require_matched=config.require_matched, rng_seed=config.rng_seed,
+                mc_method=config.mc_method,
+            )
+            written["comparisons"] = list(
+                write_comparisons(comparisons, outdir, protocol=protocol).values())
 
     if config.plot:
         figs = plot_all(
-            build.records, outdir / "figures",
-            reference=reference, comparisons=comparisons,
+            records, outdir / "figures",
+            reference=reference, comparisons=comparisons, protocol=protocol,
         )
         written["figures"] = figs
 
@@ -142,6 +182,7 @@ def build_config(args: argparse.Namespace) -> AnalysisConfig:
         primary_map=_load_primary_map(args.primary_map),
         rng_seed=args.rng_seed,
         mc_method=args.mc_method,
+        protocol=args.protocol,
     )
 
 
@@ -154,8 +195,16 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", default="outputs/analysis", help="Analysis output dir.")
     ap.add_argument("--reference", default=None,
                     help="Reference arm for comparisons (default: 'base' / a fixed arm / first).")
-    ap.add_argument("--benchmarks", default=None, help="Comma-separated include list.")
-    ap.add_argument("--exclude", default=None, help="Comma-separated exclude list.")
+    ap.add_argument("--benchmarks", default=None,
+                    help="Comma-separated include list. A base name (halueval) selects the "
+                         "benchmark and all its modified variants; a dotted name "
+                         "(halueval.constrained) selects one variant.")
+    ap.add_argument("--exclude", default=None,
+                    help="Comma-separated exclude list (same base/dotted matching).")
+    ap.add_argument("--protocol", default="both", choices=list(PROTOCOL_CHOICES),
+                    help="Which trees to write: original protocols into --out (the layout "
+                         "every existing call reads), modified protocols into --out/modified/ "
+                         "(only when there are modified records), or both (default).")
     ap.add_argument("--no-compare", action="store_true",
                     help="Aggregate each arm only; skip cross-arm comparison.")
     ap.add_argument("--no-plot", action="store_true", help="Skip figures.")

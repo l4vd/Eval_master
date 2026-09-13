@@ -31,6 +31,7 @@ its flags. See the parent [config reference](../README.md) for global keys and t
 | `unanswerable` | The context lacks the answer → the model should refuse ("unknown"), not guess. |
 | `inconsistent` | The context contains a contradiction → the model should flag the conflict. |
 | `counterfactual` | The context asserts something counter to world knowledge → the model should follow the *context*, not its prior. |
+| `counterfactual_mc` | *Modified protocol, opt-in.* The counterfactual split as multiple choice: every answer option scored by log-likelihood under the same prompt, with no generation and no parser. See [below](#multiple-choice-counterfactual_mc-opt-in). |
 
 ## Full underlying CLI (for `extra_args`)
 
@@ -62,11 +63,12 @@ Each task loads a config file (override with `--config`). Fields, e.g.
 | Field | Meaning |
 | --- | --- |
 | `dataset_name` | HF dataset id (e.g. `Salesforce/FaithEval-unanswerable-v1.0`). |
-| `scoring` | Scoring method (`phrase_match`). |
+| `scoring` | Scoring method: `phrase_match`, `answer_match`, or `choice_loglik` (multiple choice). |
 | `task_specific_prompt` | Instruction appended to each example. |
 | `valid_phrases` | Lenient accept list — any of these in the answer counts as correct. |
 | `strict_valid_phrases` | Used instead when `strict_match=true` (a narrower list). |
 | `context_column` / `question_column` | Dataset column names for the context and question. |
+| `choices_column` / `answer_key_column` | `choice_loglik` only: the options column (`{"label": [...], "text": [...]}`) and the column naming the gold label. |
 
 ## Batch size and comparability
 
@@ -111,6 +113,27 @@ long the job took:
 order, so each padded forward pass holds prompts of similar size (see the config comment).
 The predictions file is written back in dataset order and carries an `index` per row, so the
 artifact does not depend on the execution order and stays diffable across settings.
+
+## Multiple choice (`counterfactual_mc`, opt-in)
+
+`counterfactual`'s exact match punishes verbosity (`analysis/format_confound.md` §3.1). Listing
+`counterfactual_mc` in `tasks` scores the same 1,000 items without generating anything.
+
+- **Scoring.** The prompt is unchanged. Each option is scored by its summed log-probability as the
+  answer: the context rendered as for generation, the options right-padded, raw logits.
+- **Metrics.** `accuracy` takes the likeliest option; `accuracy_norm` takes the likeliest per
+  character (lm-eval's `acc_norm`).
+- **Cost.** Minutes per checkpoint, with `batch_size` sequences per forward pass.
+- **Artifacts.** `counterfactual_mc_predictions.jsonl` (`index`, `question`, `choice_scores`,
+  `predicted`, `gold`, `correct`) and `counterfactual_mc_summary.json` (`scoring: choice_loglik`).
+  The analysis reads the summary as `faitheval.mc`.
+
+It is a modified protocol: run it into its own output root, and report it beside `counterfactual`,
+never instead of it.
+
+```bash
+./run_all.sh model.id=<ckpt> output_dir="$EVAL_ROOT_MOD/<arm>/seed_42" run='[faitheval]' 'faitheval.tasks=[counterfactual_mc]'
+```
 
 ## Output
 

@@ -66,6 +66,35 @@ def signed_value(value: float, higher_is_better: bool) -> float:
     return value if higher_is_better else -value
 
 
+# --- Protocols ------------------------------------------------------------------------
+# A modified protocol (constrained scoring, decontamination, multiple choice) reports under
+# its own benchmark name, ``<benchmark>.<variant>``. The name alone decides the protocol,
+# so records.jsonl files written before variants existed reload as original, unchanged.
+ORIGINAL = "original"
+MODIFIED = "modified"
+
+
+def base_benchmark(benchmark: str) -> str:
+    """``halueval`` for ``halueval.constrained``; an original name maps to itself."""
+    return benchmark.split(".", 1)[0]
+
+
+def protocol_of(benchmark: str) -> str:
+    """``modified`` exactly when the benchmark name carries a variant suffix."""
+    return MODIFIED if "." in benchmark else ORIGINAL
+
+
+def benchmark_selected(benchmark: str, selectors: Iterable[str]) -> bool:
+    """Whether a ``--benchmarks`` / ``--exclude`` list names ``benchmark``.
+
+    A base name selects the benchmark and every variant of it; a dotted name selects
+    that one variant only.
+    """
+    return any(
+        benchmark == s or ("." not in s and base_benchmark(benchmark) == s) for s in selectors
+    )
+
+
 class RecordSet:
     """A thin, immutable-ish wrapper over ``list[MetricRecord]`` with filters.
 
@@ -115,14 +144,23 @@ class RecordSet:
     def include_benchmarks(
         self, include: Iterable[str] | None, exclude: Iterable[str] | None
     ) -> "RecordSet":
-        """Apply the per-benchmark enable/disable selection (``--benchmarks`` / ``--exclude``)."""
-        inc = set(include) if include else None
-        exc = set(exclude) if exclude else set()
+        """Apply the per-benchmark enable/disable selection (``--benchmarks`` / ``--exclude``).
+
+        Names match as in :func:`benchmark_selected`: ``halueval`` also covers
+        ``halueval.constrained``; ``halueval.constrained`` covers only itself.
+        """
+        inc = list(include) if include else None
+        exc = list(exclude) if exclude else []
         return RecordSet(
             r
             for r in self._records
-            if (inc is None or r.benchmark in inc) and r.benchmark not in exc
+            if (inc is None or benchmark_selected(r.benchmark, inc))
+            and not benchmark_selected(r.benchmark, exc)
         )
+
+    def by_protocol(self, protocol: str) -> "RecordSet":
+        """Only the records of one protocol (see :func:`protocol_of`)."""
+        return RecordSet(r for r in self._records if protocol_of(r.benchmark) == protocol)
 
     # -- read-back helpers used by aggregation / plotting ------------------------
 

@@ -1,0 +1,5728 @@
+{
+  "schema_version": 1,
+  "train": "ragtruth",
+  "benchmark": "halueval",
+  "task": "summarization",
+  "policy": "exclude rows whose best tier is exact or near_duplicate and whose exposure is train or val; exact/near_duplicate rows with test or release_only exposure are kept as the unseen-exposed control; partial rows are kept",
+  "params": {
+    "ngram": 13,
+    "near_dup": 0.5,
+    "df_max": 10,
+    "exposure_topk": 3,
+    "normalization": "NFKC -> casefold -> [\\W_]+ -> ' '",
+    "containment": "shared distinct n-grams / distinct n-grams of the eval text"
+  },
+  "report_sha256": "0362d1894b050ab0cdef586a43c621a65738705600f07e588b5a56a0105467fd",
+  "n_rows": 10000,
+  "n_excluded": 503,
+  "indices": [
+    1,
+    3,
+    4,
+    5,
+    7,
+    8,
+    10,
+    15,
+    16,
+    19,
+    21,
+    23,
+    25,
+    27,
+    30,
+    35,
+    47,
+    49,
+    51,
+    54,
+    55,
+    58,
+    59,
+    61,
+    62,
+    63,
+    65,
+    66,
+    68,
+    69,
+    70,
+    73,
+    76,
+    78,
+    81,
+    82,
+    84,
+    85,
+    88,
+    89,
+    92,
+    94,
+    96,
+    99,
+    100,
+    106,
+    107,
+    110,
+    112,
+    113,
+    115,
+    119,
+    121,
+    126,
+    130,
+    134,
+    137,
+    138,
+    139,
+    141,
+    142,
+    143,
+    145,
+    148,
+    152,
+    158,
+    160,
+    164,
+    166,
+    167,
+    169,
+    172,
+    173,
+    174,
+    180,
+    185,
+    189,
+    190,
+    195,
+    197,
+    198,
+    199,
+    200,
+    202,
+    204,
+    207,
+    209,
+    211,
+    212,
+    218,
+    219,
+    221,
+    222,
+    223,
+    225,
+    226,
+    230,
+    232,
+    234,
+    237,
+    238,
+    241,
+    243,
+    251,
+    252,
+    253,
+    254,
+    255,
+    256,
+    259,
+    260,
+    261,
+    263,
+    266,
+    268,
+    271,
+    272,
+    274,
+    277,
+    280,
+    281,
+    286,
+    289,
+    292,
+    296,
+    299,
+    301,
+    302,
+    303,
+    304,
+    309,
+    310,
+    317,
+    322,
+    327,
+    329,
+    333,
+    335,
+    337,
+    340,
+    341,
+    342,
+    343,
+    345,
+    346,
+    347,
+    348,
+    349,
+    352,
+    355,
+    357,
+    358,
+    359,
+    363,
+    364,
+    365,
+    369,
+    370,
+    378,
+    387,
+    388,
+    389,
+    390,
+    392,
+    393,
+    394,
+    396,
+    399,
+    401,
+    402,
+    404,
+    405,
+    407,
+    409,
+    410,
+    412,
+    413,
+    416,
+    417,
+    419,
+    420,
+    421,
+    422,
+    424,
+    425,
+    426,
+    427,
+    428,
+    436,
+    437,
+    440,
+    441,
+    442,
+    445,
+    447,
+    448,
+    452,
+    453,
+    455,
+    457,
+    458,
+    463,
+    467,
+    469,
+    471,
+    473,
+    476,
+    478,
+    480,
+    483,
+    484,
+    486,
+    488,
+    489,
+    493,
+    494,
+    501,
+    507,
+    508,
+    510,
+    511,
+    512,
+    513,
+    517,
+    520,
+    521,
+    529,
+    530,
+    531,
+    532,
+    533,
+    535,
+    536,
+    537,
+    538,
+    544,
+    545,
+    548,
+    549,
+    550,
+    551,
+    552,
+    553,
+    555,
+    556,
+    563,
+    564,
+    567,
+    568,
+    569,
+    570,
+    572,
+    573,
+    574,
+    576,
+    577,
+    578,
+    579,
+    581,
+    582,
+    585,
+    586,
+    590,
+    592,
+    594,
+    596,
+    597,
+    598,
+    601,
+    602,
+    604,
+    605,
+    606,
+    607,
+    609,
+    610,
+    611,
+    612,
+    613,
+    618,
+    620,
+    621,
+    622,
+    624,
+    625,
+    626,
+    627,
+    630,
+    634,
+    635,
+    636,
+    638,
+    639,
+    644,
+    648,
+    649,
+    650,
+    651,
+    654,
+    655,
+    657,
+    659,
+    663,
+    666,
+    667,
+    668,
+    670,
+    671,
+    673,
+    674,
+    676,
+    678,
+    679,
+    681,
+    683,
+    684,
+    685,
+    686,
+    688,
+    689,
+    696,
+    697,
+    698,
+    699,
+    700,
+    702,
+    703,
+    705,
+    707,
+    709,
+    713,
+    714,
+    715,
+    716,
+    717,
+    718,
+    720,
+    722,
+    725,
+    726,
+    727,
+    729,
+    730,
+    731,
+    736,
+    738,
+    740,
+    741,
+    744,
+    745,
+    746,
+    751,
+    752,
+    754,
+    758,
+    759,
+    760,
+    762,
+    764,
+    765,
+    766,
+    768,
+    771,
+    772,
+    782,
+    783,
+    784,
+    786,
+    787,
+    790,
+    791,
+    792,
+    793,
+    794,
+    795,
+    796,
+    801,
+    806,
+    807,
+    808,
+    812,
+    814,
+    815,
+    816,
+    817,
+    818,
+    819,
+    820,
+    821,
+    822,
+    824,
+    825,
+    826,
+    827,
+    828,
+    829,
+    830,
+    831,
+    832,
+    833,
+    834,
+    835,
+    836,
+    837,
+    839,
+    841,
+    842,
+    843,
+    845,
+    846,
+    848,
+    849,
+    851,
+    852,
+    853,
+    856,
+    857,
+    859,
+    860,
+    862,
+    863,
+    864,
+    865,
+    867,
+    869,
+    870,
+    871,
+    872,
+    874,
+    875,
+    877,
+    878,
+    879,
+    880,
+    882,
+    883,
+    884,
+    886,
+    888,
+    889,
+    890,
+    893,
+    896,
+    897,
+    898,
+    899,
+    900,
+    901,
+    902,
+    903,
+    904,
+    905,
+    906,
+    907,
+    908,
+    909,
+    911,
+    916,
+    917,
+    920,
+    921,
+    922,
+    926,
+    927,
+    930,
+    931,
+    932,
+    933,
+    935,
+    938,
+    940,
+    942,
+    943,
+    946,
+    950,
+    953,
+    954,
+    956,
+    958,
+    960,
+    964,
+    965,
+    966,
+    968,
+    969,
+    970,
+    971,
+    972,
+    974,
+    976,
+    977,
+    978,
+    980,
+    981,
+    987,
+    988,
+    989,
+    990,
+    992,
+    994,
+    995,
+    996,
+    1034
+  ],
+  "per_index": {
+    "1": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11316"
+      ]
+    },
+    "3": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15703"
+      ]
+    },
+    "4": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15592"
+      ]
+    },
+    "5": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15704"
+      ]
+    },
+    "7": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15705"
+      ]
+    },
+    "8": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15706"
+      ]
+    },
+    "10": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15701"
+      ]
+    },
+    "15": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15593"
+      ]
+    },
+    "16": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11320"
+      ]
+    },
+    "19": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11319"
+      ]
+    },
+    "21": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11322"
+      ]
+    },
+    "23": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11321"
+      ]
+    },
+    "25": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15595"
+      ]
+    },
+    "27": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15707"
+      ]
+    },
+    "30": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15597"
+      ]
+    },
+    "35": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15598"
+      ]
+    },
+    "47": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15712"
+      ]
+    },
+    "49": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15600"
+      ]
+    },
+    "51": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15710"
+      ]
+    },
+    "54": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15709"
+      ]
+    },
+    "55": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11334"
+      ]
+    },
+    "58": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15603"
+      ]
+    },
+    "59": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11333"
+      ]
+    },
+    "61": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11335"
+      ]
+    },
+    "62": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15605"
+      ]
+    },
+    "63": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15716"
+      ]
+    },
+    "65": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15606"
+      ]
+    },
+    "66": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15715"
+      ]
+    },
+    "68": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15718"
+      ]
+    },
+    "69": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11336"
+      ]
+    },
+    "70": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15717"
+      ]
+    },
+    "73": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15724"
+      ]
+    },
+    "76": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15608"
+      ]
+    },
+    "78": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15607"
+      ]
+    },
+    "81": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11338"
+      ]
+    },
+    "82": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15721"
+      ]
+    },
+    "84": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15719"
+      ]
+    },
+    "85": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15609"
+      ]
+    },
+    "88": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15610"
+      ]
+    },
+    "89": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15725"
+      ]
+    },
+    "92": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15612"
+      ]
+    },
+    "94": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15611"
+      ]
+    },
+    "96": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15614"
+      ]
+    },
+    "99": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15729"
+      ]
+    },
+    "100": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15615"
+      ]
+    },
+    "106": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15731"
+      ]
+    },
+    "107": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15618"
+      ]
+    },
+    "110": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15620"
+      ]
+    },
+    "112": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15621"
+      ]
+    },
+    "113": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15619"
+      ]
+    },
+    "115": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15728"
+      ]
+    },
+    "119": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15622"
+      ]
+    },
+    "121": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15730"
+      ]
+    },
+    "126": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11348"
+      ]
+    },
+    "130": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11350"
+      ]
+    },
+    "134": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15624"
+      ]
+    },
+    "137": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15736"
+      ]
+    },
+    "138": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15625"
+      ]
+    },
+    "139": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15734"
+      ]
+    },
+    "141": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15626"
+      ]
+    },
+    "142": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15742"
+      ]
+    },
+    "143": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15738"
+      ]
+    },
+    "145": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15743"
+      ]
+    },
+    "148": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15741"
+      ]
+    },
+    "152": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11351"
+      ]
+    },
+    "158": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15746"
+      ]
+    },
+    "160": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15752"
+      ]
+    },
+    "164": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15629"
+      ]
+    },
+    "166": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15631"
+      ]
+    },
+    "167": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15632"
+      ]
+    },
+    "169": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15630"
+      ]
+    },
+    "172": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15748"
+      ]
+    },
+    "173": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11354"
+      ]
+    },
+    "174": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15633"
+      ]
+    },
+    "180": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15751"
+      ]
+    },
+    "185": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15635"
+      ]
+    },
+    "189": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15636"
+      ]
+    },
+    "190": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15637"
+      ]
+    },
+    "195": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15760"
+      ]
+    },
+    "197": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15639"
+      ]
+    },
+    "198": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15758"
+      ]
+    },
+    "199": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15756"
+      ]
+    },
+    "200": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15761"
+      ]
+    },
+    "202": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15640"
+      ]
+    },
+    "204": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15755"
+      ]
+    },
+    "207": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15641"
+      ]
+    },
+    "209": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15642"
+      ]
+    },
+    "211": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15757"
+      ]
+    },
+    "212": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15754"
+      ]
+    },
+    "218": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11365"
+      ]
+    },
+    "219": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11364"
+      ]
+    },
+    "221": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11367"
+      ]
+    },
+    "222": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15764"
+      ]
+    },
+    "223": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15763"
+      ]
+    },
+    "225": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15644"
+      ]
+    },
+    "226": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15643"
+      ]
+    },
+    "230": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15766"
+      ]
+    },
+    "232": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11369"
+      ]
+    },
+    "234": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11368"
+      ]
+    },
+    "237": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11371"
+      ]
+    },
+    "238": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15646"
+      ]
+    },
+    "241": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15762"
+      ]
+    },
+    "243": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15765"
+      ]
+    },
+    "251": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15773"
+      ]
+    },
+    "252": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15775"
+      ]
+    },
+    "253": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15776"
+      ]
+    },
+    "254": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15647"
+      ]
+    },
+    "255": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15772"
+      ]
+    },
+    "256": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15770"
+      ]
+    },
+    "259": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15771"
+      ]
+    },
+    "260": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11380"
+      ]
+    },
+    "261": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15649"
+      ]
+    },
+    "263": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15650"
+      ]
+    },
+    "266": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11382"
+      ]
+    },
+    "268": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11381"
+      ]
+    },
+    "271": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15774"
+      ]
+    },
+    "272": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15768"
+      ]
+    },
+    "274": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15777"
+      ]
+    },
+    "277": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15780"
+      ]
+    },
+    "280": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15653"
+      ]
+    },
+    "281": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15782"
+      ]
+    },
+    "286": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15655"
+      ]
+    },
+    "289": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11385"
+      ]
+    },
+    "292": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15656"
+      ]
+    },
+    "296": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15783"
+      ]
+    },
+    "299": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15785"
+      ]
+    },
+    "301": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15781"
+      ]
+    },
+    "302": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15657"
+      ]
+    },
+    "303": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15658"
+      ]
+    },
+    "304": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11386"
+      ]
+    },
+    "309": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15784"
+      ]
+    },
+    "310": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15659"
+      ]
+    },
+    "317": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15660"
+      ]
+    },
+    "322": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15787"
+      ]
+    },
+    "327": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15662"
+      ]
+    },
+    "329": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15663"
+      ]
+    },
+    "333": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15664"
+      ]
+    },
+    "335": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15790"
+      ]
+    },
+    "337": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15788"
+      ]
+    },
+    "340": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11396"
+      ]
+    },
+    "341": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15666"
+      ]
+    },
+    "342": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15801"
+      ]
+    },
+    "343": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15793"
+      ]
+    },
+    "345": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15795"
+      ]
+    },
+    "346": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15668"
+      ]
+    },
+    "347": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11397"
+      ]
+    },
+    "348": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15799"
+      ]
+    },
+    "349": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11398"
+      ]
+    },
+    "352": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11399"
+      ]
+    },
+    "355": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15669"
+      ]
+    },
+    "357": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15796"
+      ]
+    },
+    "358": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15798"
+      ]
+    },
+    "359": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15794"
+      ]
+    },
+    "363": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11401"
+      ]
+    },
+    "364": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15797"
+      ]
+    },
+    "365": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11402"
+      ]
+    },
+    "369": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15671"
+      ]
+    },
+    "370": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15672"
+      ]
+    },
+    "378": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15674"
+      ]
+    },
+    "387": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15676"
+      ]
+    },
+    "388": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15675"
+      ]
+    },
+    "389": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11412"
+      ]
+    },
+    "390": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11413"
+      ]
+    },
+    "392": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15677"
+      ]
+    },
+    "393": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15678"
+      ]
+    },
+    "394": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11414"
+      ]
+    },
+    "396": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11416"
+      ]
+    },
+    "399": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11415"
+      ]
+    },
+    "401": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15679"
+      ]
+    },
+    "402": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15680"
+      ]
+    },
+    "404": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15804"
+      ]
+    },
+    "405": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15810"
+      ]
+    },
+    "407": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15803"
+      ]
+    },
+    "409": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15802"
+      ]
+    },
+    "410": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15682"
+      ]
+    },
+    "412": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15681"
+      ]
+    },
+    "413": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15809"
+      ]
+    },
+    "416": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15816"
+      ]
+    },
+    "417": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15808"
+      ]
+    },
+    "419": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15815"
+      ]
+    },
+    "420": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15684"
+      ]
+    },
+    "421": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15806"
+      ]
+    },
+    "422": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15811"
+      ]
+    },
+    "424": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15685"
+      ]
+    },
+    "425": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15805"
+      ]
+    },
+    "426": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15818"
+      ]
+    },
+    "427": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15686"
+      ]
+    },
+    "428": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15807"
+      ]
+    },
+    "436": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15688"
+      ]
+    },
+    "437": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15687"
+      ]
+    },
+    "440": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15820"
+      ]
+    },
+    "441": {
+      "tier": "near_duplicate",
+      "containment": 0.5554,
+      "exposure": "train",
+      "source_ids": [
+        "15689"
+      ]
+    },
+    "442": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15689"
+      ]
+    },
+    "445": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15822"
+      ]
+    },
+    "447": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11425"
+      ]
+    },
+    "448": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15826"
+      ]
+    },
+    "452": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11428"
+      ]
+    },
+    "453": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11427"
+      ]
+    },
+    "455": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11429"
+      ]
+    },
+    "457": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11430"
+      ]
+    },
+    "458": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15823"
+      ]
+    },
+    "463": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15829"
+      ]
+    },
+    "467": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15835"
+      ]
+    },
+    "469": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15692"
+      ]
+    },
+    "471": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15830"
+      ]
+    },
+    "473": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15834"
+      ]
+    },
+    "476": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "15838"
+      ]
+    },
+    "478": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15827"
+      ]
+    },
+    "480": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15833"
+      ]
+    },
+    "483": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15697"
+      ]
+    },
+    "484": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15828"
+      ]
+    },
+    "486": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15837"
+      ]
+    },
+    "488": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15699"
+      ]
+    },
+    "489": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15698"
+      ]
+    },
+    "493": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15832"
+      ]
+    },
+    "494": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "15831"
+      ]
+    },
+    "501": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11769"
+      ]
+    },
+    "507": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11771"
+      ]
+    },
+    "508": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11770"
+      ]
+    },
+    "510": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11777"
+      ]
+    },
+    "511": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11772"
+      ]
+    },
+    "512": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11773"
+      ]
+    },
+    "513": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11775"
+      ]
+    },
+    "517": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11774"
+      ]
+    },
+    "520": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11780"
+      ]
+    },
+    "521": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11778"
+      ]
+    },
+    "529": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11781"
+      ]
+    },
+    "530": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11782"
+      ]
+    },
+    "531": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11787"
+      ]
+    },
+    "532": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11783"
+      ]
+    },
+    "533": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11784"
+      ]
+    },
+    "535": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11789"
+      ]
+    },
+    "536": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11788"
+      ]
+    },
+    "537": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11785"
+      ]
+    },
+    "538": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11786"
+      ]
+    },
+    "544": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11790"
+      ]
+    },
+    "545": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11793"
+      ]
+    },
+    "548": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11794"
+      ]
+    },
+    "549": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11792"
+      ]
+    },
+    "550": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11800"
+      ]
+    },
+    "551": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11796"
+      ]
+    },
+    "552": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11799"
+      ]
+    },
+    "553": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11798"
+      ]
+    },
+    "555": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11797"
+      ]
+    },
+    "556": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11801"
+      ]
+    },
+    "563": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11804"
+      ]
+    },
+    "564": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11803"
+      ]
+    },
+    "567": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11806"
+      ]
+    },
+    "568": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11802"
+      ]
+    },
+    "569": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11805"
+      ]
+    },
+    "570": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11811"
+      ]
+    },
+    "572": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11814"
+      ]
+    },
+    "573": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11815"
+      ]
+    },
+    "574": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11810"
+      ]
+    },
+    "576": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11812"
+      ]
+    },
+    "577": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11816"
+      ]
+    },
+    "578": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11809"
+      ]
+    },
+    "579": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11813"
+      ]
+    },
+    "581": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11822"
+      ]
+    },
+    "582": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11818"
+      ]
+    },
+    "585": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11823"
+      ]
+    },
+    "586": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11819"
+      ]
+    },
+    "590": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11824"
+      ]
+    },
+    "592": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11825"
+      ]
+    },
+    "594": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11829"
+      ]
+    },
+    "596": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11828"
+      ]
+    },
+    "597": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11827"
+      ]
+    },
+    "598": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11830"
+      ]
+    },
+    "601": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11834"
+      ]
+    },
+    "602": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11836"
+      ]
+    },
+    "604": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11837"
+      ]
+    },
+    "605": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11833"
+      ]
+    },
+    "606": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11835"
+      ]
+    },
+    "607": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11831"
+      ]
+    },
+    "609": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11832"
+      ]
+    },
+    "610": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11843"
+      ]
+    },
+    "611": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11844"
+      ]
+    },
+    "612": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11845"
+      ]
+    },
+    "613": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11841"
+      ]
+    },
+    "618": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11842"
+      ]
+    },
+    "620": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11846"
+      ]
+    },
+    "621": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11848"
+      ]
+    },
+    "622": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11851"
+      ]
+    },
+    "624": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11850"
+      ]
+    },
+    "625": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11849"
+      ]
+    },
+    "626": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11847"
+      ]
+    },
+    "627": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11852"
+      ]
+    },
+    "630": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11855"
+      ]
+    },
+    "634": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11856"
+      ]
+    },
+    "635": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11853"
+      ]
+    },
+    "636": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11857"
+      ]
+    },
+    "638": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11859"
+      ]
+    },
+    "639": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11854"
+      ]
+    },
+    "644": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11861"
+      ]
+    },
+    "648": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11863"
+      ]
+    },
+    "649": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11862"
+      ]
+    },
+    "650": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11871"
+      ]
+    },
+    "651": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11869"
+      ]
+    },
+    "654": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11866"
+      ]
+    },
+    "655": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11865"
+      ]
+    },
+    "657": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11867"
+      ]
+    },
+    "659": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11864"
+      ]
+    },
+    "663": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11872"
+      ]
+    },
+    "666": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11876"
+      ]
+    },
+    "667": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11878"
+      ]
+    },
+    "668": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11879"
+      ]
+    },
+    "670": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11883"
+      ]
+    },
+    "671": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11885"
+      ]
+    },
+    "673": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11882"
+      ]
+    },
+    "674": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11887"
+      ]
+    },
+    "676": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11881"
+      ]
+    },
+    "678": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11886"
+      ]
+    },
+    "679": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11884"
+      ]
+    },
+    "681": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11889"
+      ]
+    },
+    "683": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11892"
+      ]
+    },
+    "684": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11890"
+      ]
+    },
+    "685": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11893"
+      ]
+    },
+    "686": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11895"
+      ]
+    },
+    "688": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11894"
+      ]
+    },
+    "689": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11891"
+      ]
+    },
+    "696": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11897"
+      ]
+    },
+    "697": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11896"
+      ]
+    },
+    "698": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11899"
+      ]
+    },
+    "699": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11898"
+      ]
+    },
+    "700": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11906"
+      ]
+    },
+    "702": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11905"
+      ]
+    },
+    "703": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11901"
+      ]
+    },
+    "705": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11904"
+      ]
+    },
+    "707": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11903"
+      ]
+    },
+    "709": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11902"
+      ]
+    },
+    "713": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11914"
+      ]
+    },
+    "714": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11912"
+      ]
+    },
+    "715": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11909"
+      ]
+    },
+    "716": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11915"
+      ]
+    },
+    "717": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11913"
+      ]
+    },
+    "718": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11907"
+      ]
+    },
+    "720": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11916"
+      ]
+    },
+    "722": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11920"
+      ]
+    },
+    "725": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11917"
+      ]
+    },
+    "726": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11921"
+      ]
+    },
+    "727": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11918"
+      ]
+    },
+    "729": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11919"
+      ]
+    },
+    "730": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11925"
+      ]
+    },
+    "731": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11924"
+      ]
+    },
+    "736": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11923"
+      ]
+    },
+    "738": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11926"
+      ]
+    },
+    "740": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11927"
+      ]
+    },
+    "741": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11930"
+      ]
+    },
+    "744": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11931"
+      ]
+    },
+    "745": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11928"
+      ]
+    },
+    "746": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11929"
+      ]
+    },
+    "751": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11933"
+      ]
+    },
+    "752": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11937"
+      ]
+    },
+    "754": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11936"
+      ]
+    },
+    "758": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11935"
+      ]
+    },
+    "759": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11934"
+      ]
+    },
+    "760": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11938"
+      ]
+    },
+    "762": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11940"
+      ]
+    },
+    "764": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11941"
+      ]
+    },
+    "765": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11939"
+      ]
+    },
+    "766": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11943"
+      ]
+    },
+    "768": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11942"
+      ]
+    },
+    "771": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11946"
+      ]
+    },
+    "772": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11944"
+      ]
+    },
+    "782": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11951"
+      ]
+    },
+    "783": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11947"
+      ]
+    },
+    "784": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11950"
+      ]
+    },
+    "786": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11952"
+      ]
+    },
+    "787": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11949"
+      ]
+    },
+    "790": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11955"
+      ]
+    },
+    "791": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11953"
+      ]
+    },
+    "792": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11959"
+      ]
+    },
+    "793": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11958"
+      ]
+    },
+    "794": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11956"
+      ]
+    },
+    "795": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11954"
+      ]
+    },
+    "796": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11957"
+      ]
+    },
+    "801": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11962"
+      ]
+    },
+    "806": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11963"
+      ]
+    },
+    "807": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11964"
+      ]
+    },
+    "808": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11960"
+      ]
+    },
+    "812": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11965"
+      ]
+    },
+    "814": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11966"
+      ]
+    },
+    "815": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11970"
+      ]
+    },
+    "816": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11971"
+      ]
+    },
+    "817": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11968"
+      ]
+    },
+    "818": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11969"
+      ]
+    },
+    "819": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11967"
+      ]
+    },
+    "820": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11972"
+      ]
+    },
+    "821": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11973"
+      ]
+    },
+    "822": {
+      "tier": "near_duplicate",
+      "containment": 0.6883,
+      "exposure": "train",
+      "source_ids": [
+        "11979",
+        "15719",
+        "15724"
+      ]
+    },
+    "824": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11974"
+      ]
+    },
+    "825": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11980"
+      ]
+    },
+    "826": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11977"
+      ]
+    },
+    "827": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11976"
+      ]
+    },
+    "828": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11978"
+      ]
+    },
+    "829": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11975"
+      ]
+    },
+    "830": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11987"
+      ]
+    },
+    "831": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11984"
+      ]
+    },
+    "832": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11981"
+      ]
+    },
+    "833": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11983"
+      ]
+    },
+    "834": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11985"
+      ]
+    },
+    "835": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11982"
+      ]
+    },
+    "836": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11986"
+      ]
+    },
+    "837": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11988"
+      ]
+    },
+    "839": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11989"
+      ]
+    },
+    "841": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "11994"
+      ]
+    },
+    "842": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11992"
+      ]
+    },
+    "843": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11998"
+      ]
+    },
+    "845": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11995"
+      ]
+    },
+    "846": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11993"
+      ]
+    },
+    "848": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11996"
+      ]
+    },
+    "849": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11997"
+      ]
+    },
+    "851": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "12004"
+      ]
+    },
+    "852": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "11999"
+      ]
+    },
+    "853": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12003"
+      ]
+    },
+    "856": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12000"
+      ]
+    },
+    "857": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12001"
+      ]
+    },
+    "859": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12002"
+      ]
+    },
+    "860": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12010"
+      ]
+    },
+    "862": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "12006"
+      ]
+    },
+    "863": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12009"
+      ]
+    },
+    "864": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "12005"
+      ]
+    },
+    "865": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12007"
+      ]
+    },
+    "867": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12011"
+      ]
+    },
+    "869": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12012"
+      ]
+    },
+    "870": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12020"
+      ]
+    },
+    "871": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12013"
+      ]
+    },
+    "872": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12014"
+      ]
+    },
+    "874": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12017"
+      ]
+    },
+    "875": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12018"
+      ]
+    },
+    "877": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12015"
+      ]
+    },
+    "878": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12016"
+      ]
+    },
+    "879": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12019"
+      ]
+    },
+    "880": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12023"
+      ]
+    },
+    "882": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "12022"
+      ]
+    },
+    "883": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12024"
+      ]
+    },
+    "884": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12025"
+      ]
+    },
+    "886": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12021"
+      ]
+    },
+    "888": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12026"
+      ]
+    },
+    "889": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12027"
+      ]
+    },
+    "890": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12031"
+      ]
+    },
+    "893": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "12029"
+      ]
+    },
+    "896": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12033"
+      ]
+    },
+    "897": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12028"
+      ]
+    },
+    "898": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12034"
+      ]
+    },
+    "899": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12030"
+      ]
+    },
+    "900": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12040"
+      ]
+    },
+    "901": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12042"
+      ]
+    },
+    "902": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "12043"
+      ]
+    },
+    "903": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12038"
+      ]
+    },
+    "904": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12044"
+      ]
+    },
+    "905": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12035"
+      ]
+    },
+    "906": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12041"
+      ]
+    },
+    "907": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12039"
+      ]
+    },
+    "908": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12036"
+      ]
+    },
+    "909": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12037"
+      ]
+    },
+    "911": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "12046"
+      ]
+    },
+    "916": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12045"
+      ]
+    },
+    "917": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12047"
+      ]
+    },
+    "920": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12052"
+      ]
+    },
+    "921": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12051"
+      ]
+    },
+    "922": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12050"
+      ]
+    },
+    "926": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12048"
+      ]
+    },
+    "927": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12049"
+      ]
+    },
+    "930": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12056"
+      ]
+    },
+    "931": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "12055"
+      ]
+    },
+    "932": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12057"
+      ]
+    },
+    "933": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "12054"
+      ]
+    },
+    "935": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12053"
+      ]
+    },
+    "938": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12058"
+      ]
+    },
+    "940": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12063"
+      ]
+    },
+    "942": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12062"
+      ]
+    },
+    "943": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12061"
+      ]
+    },
+    "946": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "12059"
+      ]
+    },
+    "950": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "12069"
+      ]
+    },
+    "953": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12064"
+      ]
+    },
+    "954": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12067"
+      ]
+    },
+    "956": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12066"
+      ]
+    },
+    "958": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12065"
+      ]
+    },
+    "960": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12070"
+      ]
+    },
+    "964": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12071"
+      ]
+    },
+    "965": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12072"
+      ]
+    },
+    "966": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12074"
+      ]
+    },
+    "968": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12076"
+      ]
+    },
+    "969": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12075"
+      ]
+    },
+    "970": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "12080"
+      ]
+    },
+    "971": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12083"
+      ]
+    },
+    "972": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12081"
+      ]
+    },
+    "974": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "12082"
+      ]
+    },
+    "976": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "12077"
+      ]
+    },
+    "977": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12079"
+      ]
+    },
+    "978": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12078"
+      ]
+    },
+    "980": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12088"
+      ]
+    },
+    "981": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12086"
+      ]
+    },
+    "987": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12087"
+      ]
+    },
+    "988": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12085",
+        "12084"
+      ]
+    },
+    "989": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12085",
+        "12084"
+      ]
+    },
+    "990": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "val",
+      "source_ids": [
+        "12090"
+      ]
+    },
+    "992": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12092"
+      ]
+    },
+    "994": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12094"
+      ]
+    },
+    "995": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12093"
+      ]
+    },
+    "996": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "train",
+      "source_ids": [
+        "12091"
+      ]
+    },
+    "1034": {
+      "tier": "near_duplicate",
+      "containment": 0.6877,
+      "exposure": "train",
+      "source_ids": [
+        "15704"
+      ]
+    }
+  },
+  "n_unseen_exposed": 130,
+  "unseen_exposed_indices": [
+    0,
+    12,
+    13,
+    18,
+    26,
+    29,
+    31,
+    33,
+    43,
+    48,
+    52,
+    53,
+    60,
+    67,
+    74,
+    75,
+    79,
+    80,
+    87,
+    93,
+    97,
+    101,
+    102,
+    103,
+    120,
+    129,
+    131,
+    132,
+    133,
+    140,
+    144,
+    146,
+    153,
+    154,
+    157,
+    161,
+    170,
+    171,
+    175,
+    177,
+    181,
+    183,
+    188,
+    191,
+    193,
+    220,
+    233,
+    236,
+    257,
+    265,
+    267,
+    273,
+    275,
+    282,
+    287,
+    288,
+    291,
+    294,
+    313,
+    323,
+    324,
+    325,
+    338,
+    339,
+    344,
+    353,
+    354,
+    361,
+    379,
+    385,
+    386,
+    403,
+    408,
+    414,
+    429,
+    430,
+    432,
+    433,
+    434,
+    443,
+    449,
+    450,
+    461,
+    465,
+    468,
+    472,
+    477,
+    490,
+    491,
+    502,
+    515,
+    523,
+    540,
+    557,
+    561,
+    565,
+    583,
+    587,
+    593,
+    600,
+    614,
+    619,
+    632,
+    642,
+    652,
+    660,
+    661,
+    662,
+    669,
+    677,
+    680,
+    704,
+    710,
+    711,
+    719,
+    728,
+    743,
+    776,
+    789,
+    802,
+    804,
+    823,
+    840,
+    861,
+    887,
+    892,
+    947,
+    951,
+    967,
+    982
+  ],
+  "per_unseen_exposed_index": {
+    "0": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15708"
+      ]
+    },
+    "12": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "11318"
+      ]
+    },
+    "13": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11317"
+      ]
+    },
+    "18": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15702"
+      ]
+    },
+    "26": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15594"
+      ]
+    },
+    "29": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11323"
+      ]
+    },
+    "31": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15596"
+      ]
+    },
+    "33": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15713"
+      ]
+    },
+    "43": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15711"
+      ]
+    },
+    "48": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15599"
+      ]
+    },
+    "52": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15601"
+      ]
+    },
+    "53": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11332"
+      ]
+    },
+    "60": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15604"
+      ]
+    },
+    "67": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15723"
+      ]
+    },
+    "74": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15726"
+      ]
+    },
+    "75": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "11337"
+      ]
+    },
+    "79": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15720"
+      ]
+    },
+    "80": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15714"
+      ]
+    },
+    "87": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15722"
+      ]
+    },
+    "93": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15727"
+      ]
+    },
+    "97": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15613"
+      ]
+    },
+    "101": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15616"
+      ]
+    },
+    "102": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15733"
+      ]
+    },
+    "103": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15617"
+      ]
+    },
+    "120": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15732"
+      ]
+    },
+    "129": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11349"
+      ]
+    },
+    "131": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15623"
+      ]
+    },
+    "132": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15745"
+      ]
+    },
+    "133": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15737"
+      ]
+    },
+    "140": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15744"
+      ]
+    },
+    "144": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15740"
+      ]
+    },
+    "146": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15735"
+      ]
+    },
+    "153": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15627"
+      ]
+    },
+    "154": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15739"
+      ]
+    },
+    "157": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11353"
+      ]
+    },
+    "161": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15628"
+      ]
+    },
+    "170": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15747"
+      ]
+    },
+    "171": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15753"
+      ]
+    },
+    "175": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11355"
+      ]
+    },
+    "177": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15750"
+      ]
+    },
+    "181": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11356"
+      ]
+    },
+    "183": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15749"
+      ]
+    },
+    "188": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15634"
+      ]
+    },
+    "191": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15759"
+      ]
+    },
+    "193": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15638"
+      ]
+    },
+    "220": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11366"
+      ]
+    },
+    "233": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15645"
+      ]
+    },
+    "236": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11370"
+      ]
+    },
+    "257": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15648"
+      ]
+    },
+    "265": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15651"
+      ]
+    },
+    "267": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "11383"
+      ]
+    },
+    "273": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15769"
+      ]
+    },
+    "275": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11384"
+      ]
+    },
+    "282": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15652"
+      ]
+    },
+    "287": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15654"
+      ]
+    },
+    "288": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15779"
+      ]
+    },
+    "291": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15786"
+      ]
+    },
+    "294": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15778"
+      ]
+    },
+    "313": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15791"
+      ]
+    },
+    "323": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15661"
+      ]
+    },
+    "324": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15789"
+      ]
+    },
+    "325": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15792"
+      ]
+    },
+    "338": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11395"
+      ]
+    },
+    "339": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15665"
+      ]
+    },
+    "344": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15667"
+      ]
+    },
+    "353": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11400"
+      ]
+    },
+    "354": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15800"
+      ]
+    },
+    "361": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15670"
+      ]
+    },
+    "379": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15673"
+      ]
+    },
+    "385": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "11411"
+      ]
+    },
+    "386": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11410"
+      ]
+    },
+    "403": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15817"
+      ]
+    },
+    "408": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15812"
+      ]
+    },
+    "414": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15683"
+      ]
+    },
+    "429": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15819"
+      ]
+    },
+    "430": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15813"
+      ]
+    },
+    "432": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15814"
+      ]
+    },
+    "433": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15824"
+      ]
+    },
+    "434": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15825"
+      ]
+    },
+    "443": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15690"
+      ]
+    },
+    "449": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "11426"
+      ]
+    },
+    "450": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15821"
+      ]
+    },
+    "461": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15691"
+      ]
+    },
+    "465": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15693"
+      ]
+    },
+    "468": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15694"
+      ]
+    },
+    "472": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15695"
+      ]
+    },
+    "477": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15696"
+      ]
+    },
+    "490": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "15700"
+      ]
+    },
+    "491": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "15836"
+      ]
+    },
+    "502": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11768"
+      ]
+    },
+    "515": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "11776"
+      ]
+    },
+    "523": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11779"
+      ]
+    },
+    "540": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11791"
+      ]
+    },
+    "557": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11795"
+      ]
+    },
+    "561": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11808"
+      ]
+    },
+    "565": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "11807"
+      ]
+    },
+    "583": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11821"
+      ]
+    },
+    "587": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11817"
+      ]
+    },
+    "593": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11826"
+      ]
+    },
+    "600": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11838"
+      ]
+    },
+    "614": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11839"
+      ]
+    },
+    "619": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11840"
+      ]
+    },
+    "632": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11858"
+      ]
+    },
+    "642": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11860"
+      ]
+    },
+    "652": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11870"
+      ]
+    },
+    "660": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11877"
+      ]
+    },
+    "661": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11875"
+      ]
+    },
+    "662": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "11874"
+      ]
+    },
+    "669": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "11873"
+      ]
+    },
+    "677": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "11880"
+      ]
+    },
+    "680": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11888"
+      ]
+    },
+    "704": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11900"
+      ]
+    },
+    "710": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11911"
+      ]
+    },
+    "711": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11910"
+      ]
+    },
+    "719": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11908"
+      ]
+    },
+    "728": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11922"
+      ]
+    },
+    "743": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11932"
+      ]
+    },
+    "776": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11945"
+      ]
+    },
+    "789": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11948"
+      ]
+    },
+    "802": {
+      "tier": "near_duplicate",
+      "containment": 0.5977,
+      "exposure": "test",
+      "source_ids": [
+        "15735"
+      ]
+    },
+    "804": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "11961"
+      ]
+    },
+    "823": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11979"
+      ]
+    },
+    "840": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "11991"
+      ]
+    },
+    "861": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "12008"
+      ]
+    },
+    "887": {
+      "tier": "near_duplicate",
+      "containment": 0.6292,
+      "exposure": "test",
+      "source_ids": [
+        "11948"
+      ]
+    },
+    "892": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "12032"
+      ]
+    },
+    "947": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "12060"
+      ]
+    },
+    "951": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "12068"
+      ]
+    },
+    "967": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "test",
+      "source_ids": [
+        "12073"
+      ]
+    },
+    "982": {
+      "tier": "exact",
+      "containment": 1.0,
+      "exposure": "release_only",
+      "source_ids": [
+        "12089"
+      ]
+    }
+  }
+}

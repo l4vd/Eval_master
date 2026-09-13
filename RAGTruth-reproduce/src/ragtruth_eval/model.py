@@ -229,21 +229,8 @@ class HFGenerator:
     def device(self) -> torch.device:
         return self.model.device
 
-    @torch.no_grad()
-    def _generate_from_ids(self, input_ids: torch.Tensor, params: GenerationParams) -> str:
-        input_ids = input_ids.to(self.device)
-        attention_mask = torch.ones_like(input_ids)
-        outputs = self.model.generate(
-            input_ids,
-            attention_mask=attention_mask,
-            pad_token_id=self.tokenizer.pad_token_id,
-            **params.to_kwargs(),
-        )
-        new_tokens = outputs[0, input_ids.shape[-1]:]
-        return self.tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
-
-    def chat(self, messages: list[dict[str, str]], params: GenerationParams) -> str:
-        """Generate a completion for chat messages via the model's chat template.
+    def chat_ids(self, messages: list[dict[str, str]]) -> list[int]:
+        """Prompt token ids for chat messages via the model's chat template.
 
         Falls back to a plain ``[INST] ... [/INST]`` wrap if the tokenizer has no
         chat template (e.g. a base, non-instruct model).
@@ -257,9 +244,56 @@ class HFGenerator:
         else:
             text = "".join(f"[INST] {m['content'].strip()} [/INST]" for m in messages)
             input_ids = self.tokenizer(text, return_tensors="pt").input_ids
-        return self._generate_from_ids(input_ids, params)
+        return input_ids[0].tolist()
+
+    def completion_ids(self, text: str) -> list[int]:
+        """Prompt token ids for a raw completion of `text` (no chat template)."""
+        return self.tokenizer(text, return_tensors="pt").input_ids[0].tolist()
+
+    @torch.no_grad()
+    def generate_ids(self, sequences: list[list[int]], params: GenerationParams) -> list[str]:
+        """Generate for several prompts in one ``generate`` call; results in input order.
+
+        One prompt is exactly the unbatched call: no padding, an all-ones mask. Several
+        are left-padded and masked, and ``generate`` derives each row's positions from the
+        mask, so under greedy decoding a row reproduces its unbatched output up to
+        floating-point ties in the padded kernels. Sampled decoding draws for the whole
+        batch at once, so its outputs also depend on batch composition — keep the batch
+        size and the seed fixed across the runs you compare.
+        """
+        width = max(len(ids) for ids in sequences)
+        pad_id = self.tokenizer.pad_token_id
+        input_ids = torch.full((len(sequences), width), pad_id, dtype=torch.long)
+        attention_mask = torch.zeros((len(sequences), width), dtype=torch.long)
+        for row, ids in enumerate(sequences):
+            input_ids[row, width - len(ids):] = torch.tensor(ids, dtype=torch.long)
+            attention_mask[row, width - len(ids):] = 1
+        outputs = self.model.generate(
+            input_ids.to(self.device),
+            attention_mask=attention_mask.to(self.device),
+            pad_token_id=pad_id,
+            **params.to_kwargs(),
+        )
+        return [self.tokenizer.decode(row[width:], skip_special_tokens=True).strip() for row in outputs]
+
+    def chat(self, messages: list[dict[str, str]], params: GenerationParams) -> str:
+        """Generate a completion for chat messages via the model's chat template."""
+        return self.generate_ids([self.chat_ids(messages)], params)[0]
 
     def complete(self, text: str, params: GenerationParams) -> str:
         """Generate a raw completion of `text` (no chat template)."""
-        input_ids = self.tokenizer(text, return_tensors="pt").input_ids
-        return self._generate_from_ids(input_ids, params)
+        return self.generate_ids([self.completion_ids(text)], params)[0]
+
+
+def generation_order(lengths: list[int], batch_size: int) -> list[int]:
+    """Execution order: dataset order at batch size 1, else the longest prompt first.
+
+    Sorting puts similar lengths into one batch, so it pads to little more than its own
+    prompts, and runs the peak-memory batch first, so an OOM shows up at once. At batch size
+    1 there is nothing to pad, and dataset order keeps a sampled run consuming its random
+    draws in the same order an unbatched run did.
+    """
+    order = list(range(len(lengths)))
+    if batch_size <= 1:
+        return order
+    return sorted(order, key=lambda i: lengths[i], reverse=True)

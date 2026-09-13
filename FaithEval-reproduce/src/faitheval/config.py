@@ -14,9 +14,14 @@ from typing import Any
 
 import yaml
 
-SUPPORTED_TASKS = ("unanswerable", "inconsistent", "counterfactual")
+SUPPORTED_TASKS = ("unanswerable", "inconsistent", "counterfactual", "counterfactual_mc")
 PHRASE_MATCH = "phrase_match"
 ANSWER_MATCH = "answer_match"
+# Not a rule over generated text: every answer option is scored by its log-likelihood as the
+# continuation of the task prompt, and the likeliest option is the prediction. A modified
+# protocol (configs/counterfactual_mc.yaml), reported beside the original tasks.
+CHOICE_LOGLIK = "choice_loglik"
+SCORING_MODES = (PHRASE_MATCH, ANSWER_MATCH, CHOICE_LOGLIK)
 SORT_ORDERS = ("desc", "asc", "none")
 
 
@@ -32,12 +37,18 @@ class TaskConfig:
     context_column: str = "context"
     question_column: str = "question"
     answer_column: str = "answer"
+    # choice_loglik only: the column holding the options ({"label": [...], "text": [...]},
+    # or that dict as a JSON string) and the column naming the correct option's label.
+    choices_column: str | None = None
+    answer_key_column: str | None = None
 
     def __post_init__(self) -> None:
-        if self.scoring not in (PHRASE_MATCH, ANSWER_MATCH):
+        if self.scoring not in SCORING_MODES:
             raise ValueError(f"Unknown scoring mode: {self.scoring!r}")
         if self.scoring == PHRASE_MATCH and not self.valid_phrases:
             raise ValueError("phrase_match scoring requires non-empty valid_phrases")
+        if self.scoring == CHOICE_LOGLIK and not (self.choices_column and self.answer_key_column):
+            raise ValueError("choice_loglik scoring requires choices_column and answer_key_column")
 
 
 @dataclasses.dataclass(frozen=True)

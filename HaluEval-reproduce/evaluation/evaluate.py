@@ -4,6 +4,17 @@ import os
 import random
 import time
 
+# Stdlib-only sibling module: the constrained metrics and the decontamination summary live
+# there so a live run and an offline re-score compute them with the same code.
+from score_results import (
+    constrained_verdict,
+    decontam_summary,
+    decontam_summary_name,
+    load_exclusion_list,
+    score_constrained,
+    verdict_mass,
+)
+
 # `openai` and `tiktoken` are imported lazily inside the OpenAI-backed helpers so
 # the local HuggingFace judge backend (--backend hf) runs without either package
 # and without an OpenAI API key. The key is read from the OPENAI_API_KEY env var
@@ -218,6 +229,10 @@ def get_summarization_response(model, document, summary, instruction, backend="o
 
 
 SORT_ORDERS = ("desc", "asc", "none")
+# generate: the original protocol (decode a verdict, parse it). constrained: one prefill
+# per row, logP("Yes") vs logP("No"), no decoding and no parser — a modified protocol.
+# both: the two over one model load.
+SCORING_MODES = ("generate", "constrained", "both")
 
 
 class _Tally:
@@ -336,7 +351,58 @@ def _batch_order(pending, backend, generator, sort_by_length):
     return sorted(order, key=lambda i: lengths[i], reverse=sort_by_length == "desc")
 
 
-def evaluation_qa_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None, sort_by_length="desc", seed=None):
+def _check_scoring(scoring, backend, generator, constrained_output_path):
+    """Constrained scoring reads token log-probabilities, so only the local judge can do it."""
+    if scoring not in SCORING_MODES:
+        raise ValueError("scoring must be one of {}, got {!r}".format(SCORING_MODES, scoring))
+    if scoring == "generate":
+        return
+    if backend != "hf" or generator is None:
+        raise ValueError("scoring={!r} needs the local HF judge (--backend hf)".format(scoring))
+    if constrained_output_path is None:
+        raise ValueError("scoring={!r} needs a constrained_output_path".format(scoring))
+
+
+def _judge_constrained(chunk, generator, output_path, rows):
+    """Phases 2 and 3 of a constrained run, for one chunk: a single prefill, no decoding.
+
+    The chunk is the one the generate branch judges, cut from the same pending tuples, so
+    each row's ground truth — drawn in Phase 1 — is identical in both modes by
+    construction. Every task's pending tuple starts with the index and ends with
+    (ground_truth, request). Rows are appended in execution order, like the original
+    results file, and kept for the summary.
+    """
+    logprobs = generator.verdict_logprobs([pending[-1] for pending in chunk])
+    for pending, (logp_yes, logp_no) in zip(chunk, logprobs):
+        row = {"index": pending[0], "ground_truth": pending[-2],
+               "logp_yes": logp_yes, "logp_no": logp_no,
+               "verdict_mass": verdict_mass(logp_yes, logp_no),
+               "constrained_judgement": constrained_verdict(logp_yes, logp_no)}
+        dump_jsonl(row, output_path, append=True)
+        rows.append(row)
+
+
+def _finish(tally, n, scoring, constrained_rows):
+    """A task function's return value.
+
+    `generate` returns the stats dict exactly as before; the other modes return
+    {"generate": stats or None, "constrained": constrained stats}.
+    """
+    stats = None
+    if scoring != "constrained":
+        stats = tally.stats(n)
+        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(
+            tally.correct, tally.incorrect, stats["accuracy"]))
+        _print_diagnostics(stats)
+    if scoring == "generate":
+        return stats
+    constrained = score_constrained(constrained_rows)
+    _print_constrained(constrained)
+    return {"generate": stats, "constrained": constrained}
+
+
+def evaluation_qa_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None, sort_by_length="desc", seed=None, scoring="generate", constrained_output_path=None):
+    _check_scoring(scoring, backend, generator, constrained_output_path)
     _seed_labels(seed)
     with open(file, 'r', encoding="utf-8") as f:
         data = []
@@ -346,6 +412,7 @@ def evaluation_qa_dataset(model, file, instruction, output_path, backend="openai
         n = len(data) if num_samples is None else min(num_samples, len(data))
         batch_size = _resolve_batch_size(backend, generator)
         tally = _Tally()
+        constrained_rows = []
 
         # Phase 1 — draw every item's ground truth and build its prompt, over the WHOLE
         # split in ascending index order. Doing this up front (rather than per chunk) is
@@ -375,50 +442,51 @@ def evaluation_qa_dataset(model, file, instruction, output_path, backend="openai
         for start in range(0, n, batch_size):
             chunk = [pending[i] for i in order[start:min(start + batch_size, n)]]
 
-            # Phase 2 — one padded forward pass for the whole chunk.
-            if backend == "hf":
-                answers = generator.generate_many([request for *_, request in chunk])
-            else:
-                answers = [get_qa_response(model, question, answer, instruction,
-                                           backend=backend, generator=generator)
-                           for _, _, question, answer, _, _ in chunk]
-
-            # Phase 3 — score and write, in execution order (each row carries its `index`).
-            for (i, knowledge, question, answer, ground_truth, _), raw in zip(chunk, answers):
-                ans = raw.replace(".", "")
-
-                if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
-                    gen = {"index": i, "knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": "failed!", "raw_judgement": raw}
-                    dump_jsonl(gen, output_path, append=True)
-                    tally.record_failure(ground_truth)
-                    print('sample {} fails......'.format(i))
-                    continue
-                elif "Yes" in ans:
-                    if ans != "Yes":
-                        ans = "Yes"
-                    gen = {"index": i, "knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": ans, "raw_judgement": raw}
-                elif "No" in ans:
-                    if ans != "No":
-                        ans = "No"
-                    gen = {"index": i, "knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": ans, "raw_judgement": raw}
+            if scoring != "constrained":
+                # Phase 2 — one padded forward pass for the whole chunk.
+                if backend == "hf":
+                    answers = generator.generate_many([request for *_, request in chunk])
                 else:
-                    gen = None
+                    answers = [get_qa_response(model, question, answer, instruction,
+                                               backend=backend, generator=generator)
+                               for _, _, question, answer, _, _ in chunk]
 
-                assert(gen is not None)
+                # Phase 3 — score and write, in execution order (each row carries its `index`).
+                for (i, knowledge, question, answer, ground_truth, _), raw in zip(chunk, answers):
+                    ans = raw.replace(".", "")
 
-                tally.record(ground_truth, ans)
+                    if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
+                        gen = {"index": i, "knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": "failed!", "raw_judgement": raw}
+                        dump_jsonl(gen, output_path, append=True)
+                        tally.record_failure(ground_truth)
+                        print('sample {} fails......'.format(i))
+                        continue
+                    elif "Yes" in ans:
+                        if ans != "Yes":
+                            ans = "Yes"
+                        gen = {"index": i, "knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": ans, "raw_judgement": raw}
+                    elif "No" in ans:
+                        if ans != "No":
+                            ans = "No"
+                        gen = {"index": i, "knowledge": knowledge, "question": question, "answer": answer, "ground_truth": ground_truth, "judgement": ans, "raw_judgement": raw}
+                    else:
+                        gen = None
 
-                print('sample {} success......'.format(i))
-                dump_jsonl(gen, output_path, append=True)
+                    assert(gen is not None)
 
-        stats = tally.stats(n)
-        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(
-            tally.correct, tally.incorrect, stats["accuracy"]))
-        _print_diagnostics(stats)
-        return stats
+                    tally.record(ground_truth, ans)
+
+                    print('sample {} success......'.format(i))
+                    dump_jsonl(gen, output_path, append=True)
+
+            if scoring != "generate":
+                _judge_constrained(chunk, generator, constrained_output_path, constrained_rows)
+
+        return _finish(tally, n, scoring, constrained_rows)
 
 
-def evaluation_dialogue_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None, sort_by_length="desc", seed=None):
+def evaluation_dialogue_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None, sort_by_length="desc", seed=None, scoring="generate", constrained_output_path=None):
+    _check_scoring(scoring, backend, generator, constrained_output_path)
     _seed_labels(seed)
     with open(file, 'r', encoding="utf-8") as f:
         data = []
@@ -428,6 +496,7 @@ def evaluation_dialogue_dataset(model, file, instruction, output_path, backend="
         n = len(data) if num_samples is None else min(num_samples, len(data))
         batch_size = _resolve_batch_size(backend, generator)
         tally = _Tally()
+        constrained_rows = []
 
         # Phase 1 — draw ground truths and build prompts over the whole split, ascending
         # index order (see evaluation_qa_dataset for why this must precede the reordering).
@@ -454,49 +523,50 @@ def evaluation_dialogue_dataset(model, file, instruction, output_path, backend="
         for start in range(0, n, batch_size):
             chunk = [pending[i] for i in order[start:min(start + batch_size, n)]]
 
-            # Phase 2 — one padded forward pass for the whole chunk.
-            if backend == "hf":
-                answers = generator.generate_many([request for *_, request in chunk])
-            else:
-                answers = [get_dialogue_response(model, dialog, response, instruction,
-                                                 backend=backend, generator=generator)
-                           for _, _, dialog, response, _, _ in chunk]
-
-            # Phase 3 — score and write, in execution order (each row carries its `index`).
-            for (i, knowledge, dialog, response, ground_truth, _), raw in zip(chunk, answers):
-                ans = raw.replace(".", "")
-
-                if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
-                    gen = {"index": i, "knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": "failed!", "raw_judgement": raw}
-                    dump_jsonl(gen, output_path, append=True)
-                    tally.record_failure(ground_truth)
-                    print('sample {} fails......'.format(i))
-                    continue
-                elif "Yes" in ans:
-                    if ans != "Yes":
-                        ans = "Yes"
-                    gen = {"index": i, "knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": ans, "raw_judgement": raw}
-                elif "No" in ans:
-                    if ans != "No":
-                        ans = "No"
-                    gen = {"index": i, "knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": ans, "raw_judgement": raw}
+            if scoring != "constrained":
+                # Phase 2 — one padded forward pass for the whole chunk.
+                if backend == "hf":
+                    answers = generator.generate_many([request for *_, request in chunk])
                 else:
-                    gen = None
-                assert (gen is not None)
+                    answers = [get_dialogue_response(model, dialog, response, instruction,
+                                                     backend=backend, generator=generator)
+                               for _, _, dialog, response, _, _ in chunk]
 
-                tally.record(ground_truth, ans)
+                # Phase 3 — score and write, in execution order (each row carries its `index`).
+                for (i, knowledge, dialog, response, ground_truth, _), raw in zip(chunk, answers):
+                    ans = raw.replace(".", "")
 
-                print('sample {} success......'.format(i))
-                dump_jsonl(gen, output_path, append=True)
+                    if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
+                        gen = {"index": i, "knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": "failed!", "raw_judgement": raw}
+                        dump_jsonl(gen, output_path, append=True)
+                        tally.record_failure(ground_truth)
+                        print('sample {} fails......'.format(i))
+                        continue
+                    elif "Yes" in ans:
+                        if ans != "Yes":
+                            ans = "Yes"
+                        gen = {"index": i, "knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": ans, "raw_judgement": raw}
+                    elif "No" in ans:
+                        if ans != "No":
+                            ans = "No"
+                        gen = {"index": i, "knowledge": knowledge, "dialogue_history": dialog, "response": response, "ground_truth": ground_truth, "judgement": ans, "raw_judgement": raw}
+                    else:
+                        gen = None
+                    assert (gen is not None)
 
-        stats = tally.stats(n)
-        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(
-            tally.correct, tally.incorrect, stats["accuracy"]))
-        _print_diagnostics(stats)
-        return stats
+                    tally.record(ground_truth, ans)
+
+                    print('sample {} success......'.format(i))
+                    dump_jsonl(gen, output_path, append=True)
+
+            if scoring != "generate":
+                _judge_constrained(chunk, generator, constrained_output_path, constrained_rows)
+
+        return _finish(tally, n, scoring, constrained_rows)
 
 
-def evaluation_summarization_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None, sort_by_length="desc", seed=None):
+def evaluation_summarization_dataset(model, file, instruction, output_path, backend="openai", generator=None, num_samples=None, sort_by_length="desc", seed=None, scoring="generate", constrained_output_path=None):
+    _check_scoring(scoring, backend, generator, constrained_output_path)
     _seed_labels(seed)
     with open(file, 'r', encoding="utf-8") as f:
         data = []
@@ -506,6 +576,7 @@ def evaluation_summarization_dataset(model, file, instruction, output_path, back
         n = len(data) if num_samples is None else min(num_samples, len(data))
         batch_size = _resolve_batch_size(backend, generator)
         tally = _Tally()
+        constrained_rows = []
 
         # Phase 1 — draw ground truths and build prompts over the whole split, ascending
         # index order (see evaluation_qa_dataset for why this must precede the reordering).
@@ -535,46 +606,46 @@ def evaluation_summarization_dataset(model, file, instruction, output_path, back
         for start in range(0, n, batch_size):
             chunk = [pending[i] for i in order[start:min(start + batch_size, n)]]
 
-            # Phase 2 — one padded forward pass for the whole chunk.
-            if backend == "hf":
-                answers = generator.generate_many([request for *_, request in chunk])
-            else:
-                answers = [get_summarization_response(model, document, summary, instruction,
-                                                      backend=backend, generator=generator)
-                           for _, document, summary, _, _ in chunk]
-
-            # Phase 3 — score and write, in execution order (each row carries its `index`).
-            for (i, document, summary, ground_truth, _), raw in zip(chunk, answers):
-                ans = raw.replace(".", "")
-
-                if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
-                    gen = {"index": i, "document": document, "summary": summary, "ground_truth": ground_truth, "judgement": "failed!", "raw_judgement": raw}
-                    dump_jsonl(gen, output_path, append=True)
-                    tally.record_failure(ground_truth)
-                    print('sample {} fails......'.format(i))
-                    continue
-                elif "Yes" in ans:
-                    if ans != "Yes":
-                        ans = "Yes"
-                    gen = {"index": i, "document": document, "summary": summary, "ground_truth": ground_truth, "judgement": ans, "raw_judgement": raw}
-                elif "No" in ans:
-                    if ans != "No":
-                        ans = "No"
-                    gen = {"index": i, "document": document, "summary": summary, "ground_truth": ground_truth, "judgement": ans, "raw_judgement": raw}
+            if scoring != "constrained":
+                # Phase 2 — one padded forward pass for the whole chunk.
+                if backend == "hf":
+                    answers = generator.generate_many([request for *_, request in chunk])
                 else:
-                    gen = None
-                assert (gen is not None)
+                    answers = [get_summarization_response(model, document, summary, instruction,
+                                                          backend=backend, generator=generator)
+                               for _, document, summary, _, _ in chunk]
 
-                tally.record(ground_truth, ans)
+                # Phase 3 — score and write, in execution order (each row carries its `index`).
+                for (i, document, summary, ground_truth, _), raw in zip(chunk, answers):
+                    ans = raw.replace(".", "")
 
-                print('sample {} success......'.format(i))
-                dump_jsonl(gen, output_path, append=True)
+                    if ("Yes" in ans and "No" in ans) or ("Yes" not in ans and "No" not in ans):
+                        gen = {"index": i, "document": document, "summary": summary, "ground_truth": ground_truth, "judgement": "failed!", "raw_judgement": raw}
+                        dump_jsonl(gen, output_path, append=True)
+                        tally.record_failure(ground_truth)
+                        print('sample {} fails......'.format(i))
+                        continue
+                    elif "Yes" in ans:
+                        if ans != "Yes":
+                            ans = "Yes"
+                        gen = {"index": i, "document": document, "summary": summary, "ground_truth": ground_truth, "judgement": ans, "raw_judgement": raw}
+                    elif "No" in ans:
+                        if ans != "No":
+                            ans = "No"
+                        gen = {"index": i, "document": document, "summary": summary, "ground_truth": ground_truth, "judgement": ans, "raw_judgement": raw}
+                    else:
+                        gen = None
+                    assert (gen is not None)
 
-        stats = tally.stats(n)
-        print('{} correct samples, {} incorrect samples, Accuracy: {}'.format(
-            tally.correct, tally.incorrect, stats["accuracy"]))
-        _print_diagnostics(stats)
-        return stats
+                    tally.record(ground_truth, ans)
+
+                    print('sample {} success......'.format(i))
+                    dump_jsonl(gen, output_path, append=True)
+
+            if scoring != "generate":
+                _judge_constrained(chunk, generator, constrained_output_path, constrained_rows)
+
+        return _finish(tally, n, scoring, constrained_rows)
 
 
 def _run_label(model_path):
@@ -605,6 +676,18 @@ def _print_diagnostics(stats):
     print('  TPR (hallucination caught): {:.3f} | TNR (correct output cleared): {:.3f} '
           '| judged "Yes" on {:.1%} of parsed rows'.format(
               stats["tpr"], stats["tnr"], stats["judged_yes_rate"]))
+
+
+def _print_constrained(stats):
+    """The constrained scorer's headline, next to the reason it could be misleading."""
+    auroc = "n/a" if stats["auroc"] is None else "{:.4f} (SE {:.4f})".format(stats["auroc"], stats["auroc_se"])
+    print('constrained: AUROC {} | argmax accuracy {:.4f} | TPR {:.3f} | TNR {:.3f} | '
+          'judged "Yes" on {:.1%} of rows'.format(
+              auroc, stats["accuracy_argmax"], stats["tpr"], stats["tnr"], stats["judged_yes_rate"]))
+    if stats["mean_verdict_mass"] is not None:
+        print('  verdict mass: mean {:.3f}; below 0.5 on {:.1%} of rows (there the verdict is '
+              'not the judge\'s own likeliest answer)'.format(
+                  stats["mean_verdict_mass"], stats["frac_mass_below_half"]))
 
 
 def dump_jsonl(data, output_path, append=False):
@@ -676,9 +759,33 @@ if __name__ == '__main__':
     parser.add_argument("--output-dir", dest="output_dir", default=None,
                         help="Directory for the per-sample results and summary JSON. Defaults to the "
                              "in-repo '<task>/' folder (legacy behaviour) when unset.")
+    parser.add_argument("--scoring", default="generate", choices=list(SCORING_MODES),
+                        help="How a judgement is scored. 'generate' (default) is the original "
+                             "protocol: decode a verdict and parse it. 'constrained' decodes "
+                             "nothing: one prefill per row reads logP('Yes') vs logP('No') for "
+                             "the first answer token and is scored by AUROC, so output format "
+                             "cannot move it (--backend hf only). 'both' runs the two over one "
+                             "model load. Constrained artifacts go to "
+                             "<task>_<label>_constrained_{results,summary}.json; under "
+                             "'constrained' the original results file is never opened. Anything "
+                             "but 'generate' is a modified protocol: give it its own output root.")
+    parser.add_argument("--exclude-list", dest="exclude_list", default=None,
+                        help="An analysis/overlap.py exclusion list for this task. After the run, "
+                             "also write <task>_<label>[_constrained]_decontam_summary.json, "
+                             "scoring the decontaminated row sets from the same rows (no extra "
+                             "model calls). The original summary is written unchanged.")
     args = parser.parse_args()
 
     backend = args.backend or ("hf" if args.model_path else "openai")
+    if args.scoring != "generate" and backend != "hf":
+        parser.error("--scoring {} needs --backend hf: it reads token log-probabilities".format(args.scoring))
+
+    # Read before the model loads, so a wrong list fails in a second, not after the run.
+    exclusion = None
+    if args.exclude_list:
+        exclusion = load_exclusion_list(args.exclude_list)
+        if exclusion["task"] not in (None, args.task):
+            parser.error("--exclude-list is for task {!r}, not {!r}".format(exclusion["task"], args.task))
 
     generator = None
     if backend == "hf":
@@ -712,37 +819,70 @@ if __name__ == '__main__':
     else:
         results_dir = args.task
     output_path = os.path.join(results_dir, "{}_{}_results.json".format(args.task, label))
+    constrained_path = os.path.join(results_dir, "{}_{}_constrained_results.json".format(args.task, label))
 
     # Truncate any results from a previous run: the per-sample writes below append,
     # so without this a re-run would accumulate stale rows on top of the old file.
-    open(output_path, 'w', encoding='utf-8').close()
+    # Only the files this scoring mode writes are touched: under --scoring constrained the
+    # original protocol's results file is never opened.
+    if args.scoring != "constrained":
+        open(output_path, 'w', encoding='utf-8').close()
+    if args.scoring != "generate":
+        open(constrained_path, 'w', encoding='utf-8').close()
 
     data = "../data/{}_data.json".format(args.task)
 
     kwargs = dict(backend=backend, generator=generator, num_samples=args.num_samples,
-                  sort_by_length=args.sort_by_length, seed=args.seed)
+                  sort_by_length=args.sort_by_length, seed=args.seed,
+                  scoring=args.scoring, constrained_output_path=constrained_path)
     if args.task == "qa":
-        stats = evaluation_qa_dataset(model, data, instruction, output_path, **kwargs)
+        result = evaluation_qa_dataset(model, data, instruction, output_path, **kwargs)
     elif args.task == "dialogue":
-        stats = evaluation_dialogue_dataset(model, data, instruction, output_path, **kwargs)
+        result = evaluation_dialogue_dataset(model, data, instruction, output_path, **kwargs)
     elif args.task == "summarization":
-        stats = evaluation_summarization_dataset(model, data, instruction, output_path, **kwargs)
+        result = evaluation_summarization_dataset(model, data, instruction, output_path, **kwargs)
     else:
         raise ValueError("The task must be qa, dialogue, or summarization!")
+    if args.scoring == "generate":
+        stats, constrained = result, None
+    else:
+        stats, constrained = result["generate"], result["constrained"]
 
     # Persist the headline accuracy so the stored run is self-contained (the other
     # four benchmarks all write a summary; HaluEval previously only printed it).
     # Every setting that can move the number is recorded alongside it, so two
     # summaries can be checked for comparability without digging up the launch command.
-    summary = {"task": args.task, "model": label, "backend": backend,
-               "batch_size": args.batch_size if backend == "hf" else 1,
-               "sort_by_length": args.sort_by_length if backend == "hf" else "none",
-               "seed": args.seed,
-               "num_samples_requested": args.num_samples,
-               "max_new_tokens": generator.max_new_tokens if generator is not None else None,
-               "prompt_format": generator.prompt_format if generator is not None else "openai"}
-    summary.update(stats or {})
-    summary_path = os.path.join(results_dir, "{}_{}_summary.json".format(args.task, label))
-    with open(summary_path, 'w', encoding='utf-8') as f:
-        json.dump(summary, f, indent=2)
-    print("Summary written to {}".format(summary_path))
+    provenance = {"task": args.task, "model": label, "backend": backend,
+                  "batch_size": args.batch_size if backend == "hf" else 1,
+                  "sort_by_length": args.sort_by_length if backend == "hf" else "none",
+                  "seed": args.seed,
+                  "num_samples_requested": args.num_samples,
+                  "max_new_tokens": generator.max_new_tokens if generator is not None else None,
+                  "prompt_format": generator.prompt_format if generator is not None else "openai"}
+    scored_results = []
+    if stats is not None:
+        summary = dict(provenance)
+        summary.update(stats)
+        summary_path = os.path.join(results_dir, "{}_{}_summary.json".format(args.task, label))
+        with open(summary_path, 'w', encoding='utf-8') as f:
+            json.dump(summary, f, indent=2)
+        print("Summary written to {}".format(summary_path))
+        scored_results.append(output_path)
+    if constrained is not None:
+        # `max_new_tokens` stays for census uniformity; a constrained run decodes nothing.
+        summary = dict(provenance, scoring="constrained", verdict_tokens=generator.verdict_tokens)
+        summary.update(constrained)
+        summary_path = os.path.join(results_dir, "{}_{}_constrained_summary.json".format(args.task, label))
+        with open(summary_path, 'w', encoding='utf-8') as f:
+            json.dump(summary, f, indent=2)
+        print("Constrained summary written to {}".format(summary_path))
+        scored_results.append(constrained_path)
+
+    if exclusion is not None:
+        for results_path in scored_results:
+            decontam = decontam_summary(results_path, exclusion)
+            decontam_path = os.path.join(results_dir, decontam_summary_name(results_path))
+            with open(decontam_path, 'w', encoding='utf-8') as f:
+                json.dump(decontam, f, indent=2)
+            print("Decontaminated summary written to {} ({} rows excluded{})".format(
+                decontam_path, decontam["n_excluded"], "" if decontam["complete"] else ", INCOMPLETE run"))

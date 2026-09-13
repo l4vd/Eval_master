@@ -9,7 +9,7 @@ from typing import Any
 
 from tqdm import tqdm
 
-from faitheval.config import ANSWER_MATCH, PHRASE_MATCH, EvalConfig
+from faitheval.config import ANSWER_MATCH, CHOICE_LOGLIK, PHRASE_MATCH, EvalConfig
 from faitheval.data import load_task_dataset
 from faitheval.metrics import answer_match, phrase_match
 from faitheval.model import GenerationParams, HFChatGenerator
@@ -46,6 +46,58 @@ def batch_order(lengths: list[int], sort_by_length: str) -> list[int]:
     if sort_by_length == "none":
         return order
     return sorted(order, key=lambda i: lengths[i], reverse=sort_by_length == "desc")
+
+
+def parse_choices(value: Any) -> tuple[list[str], list[str]]:
+    """``(labels, texts)`` of a FaithEval ``choices`` cell, ``{"label": [...], "text": [...]}``.
+
+    The local JSONL stores the cell as a JSON string; a split loaded from the Hub yields
+    the dict itself.
+    """
+    if isinstance(value, str):
+        value = json.loads(value)
+    labels = [str(label) for label in value["label"]]
+    texts = [str(text) for text in value["text"]]
+    if not texts or len(labels) != len(texts):
+        raise ValueError(f"malformed choices: {len(labels)} labels for {len(texts)} options")
+    return labels, texts
+
+
+def resolve_gold(
+    labels: list[str],
+    answer_key: Any,
+    *,
+    texts: list[str] | None = None,
+    answer: Any = None,
+) -> int:
+    """Position of the correct option, named by its label (FaithEval's ``answerKey``).
+
+    The counterfactual split's NYSEDREGENTS_* rows label their options 1-4 but key them
+    A-D. For those the letter is read as a position (A = first option), accepted only if
+    the option there is the row's ``answer`` text, so a key that is merely out of range
+    of the labels still fails loudly rather than being silently reinterpreted.
+    """
+    key = str(answer_key).strip()
+    if key in labels:
+        return labels.index(key)
+    if len(key) == 1 and "A" <= key <= "Z" and all(label.isdigit() for label in labels):
+        position = ord(key) - ord("A")
+        if (
+            position < len(labels)
+            and texts is not None
+            and answer is not None
+            and texts[position].strip() == str(answer).strip()
+        ):
+            return position
+    raise ValueError(
+        f"answer key {answer_key!r} is not one of the option labels {labels}"
+        " and does not name the answer text by position"
+    )
+
+
+def argmax(values: list[float]) -> int:
+    """Index of the largest value; the earliest one on a tie."""
+    return max(range(len(values)), key=lambda i: (values[i], -i))
 
 
 def run_evaluation(config: EvalConfig) -> dict[str, Any]:
@@ -89,6 +141,9 @@ def run_evaluation(config: EvalConfig) -> dict[str, Any]:
         build_messages(example, config.task_config, config.system_prompt) for example in examples
     ]
     order = batch_order(generator.prompt_token_lengths(all_messages), config.sort_by_length)
+
+    if config.task_config.scoring == CHOICE_LOGLIK:
+        return _run_choice_loglik(config, generator, examples, all_messages, order, output_dir)
 
     num_correct = 0
     total_words = 0
@@ -163,6 +218,91 @@ def run_evaluation(config: EvalConfig) -> dict[str, Any]:
         mean_prediction_words,
         100 * truncation_rate,
         config.max_new_tokens,
+    )
+    logger.info("Predictions written to %s", predictions_path)
+    logger.info("Summary written to %s", summary_path)
+    return summary
+
+
+def _run_choice_loglik(
+    config: EvalConfig,
+    generator: HFChatGenerator,
+    examples: list[dict[str, Any]],
+    all_messages: list[list[dict[str, str]]],
+    order: list[int],
+    output_dir: Path,
+) -> dict[str, Any]:
+    """Score every answer option by log-likelihood: no generation, no answer parser.
+
+    Everything but the scoring is shared with the generation path: the task's own prompt
+    (`build_messages`), batches cut in the same length-sorted order, and predictions
+    restored to dataset order. `accuracy` takes the option with the highest summed
+    log-probability; `accuracy_norm` the highest per character (lm-eval's acc_norm), which
+    removes the edge short options get from having fewer tokens to pay for.
+    """
+    task_config = config.task_config
+    predictions_path = output_dir / f"{config.task}_predictions.jsonl"
+    num_examples = len(examples)
+    num_correct = 0
+    num_correct_norm = 0
+    with predictions_path.open("w", encoding="utf-8") as predictions_file:
+        with tqdm(total=num_examples, desc=f"Scoring options [{config.task}]") as progress:
+            for start in range(0, num_examples, config.batch_size):
+                indices = order[start : min(start + config.batch_size, num_examples)]
+                options = [parse_choices(examples[i][task_config.choices_column]) for i in indices]
+                scores = generator.choice_logprobs(
+                    [all_messages[i] for i in indices], [texts for _, texts in options]
+                )
+                for index, (labels, texts), option_scores in zip(indices, options, scores):
+                    example = examples[index]
+                    gold = resolve_gold(
+                        labels,
+                        example[task_config.answer_key_column],
+                        texts=texts,
+                        answer=example.get(task_config.answer_column),
+                    )
+                    predicted = argmax([logprob for logprob, _, _ in option_scores])
+                    predicted_norm = argmax(
+                        [logprob / max(n_chars, 1) for logprob, _, n_chars in option_scores]
+                    )
+                    num_correct += int(predicted == gold)
+                    num_correct_norm += int(predicted_norm == gold)
+                    record = {
+                        "index": index,
+                        "question": example[task_config.question_column],
+                        "choice_scores": [
+                            {"label": label, "logprob": logprob, "n_tokens": n_tokens, "n_chars": n_chars}
+                            for label, (logprob, n_tokens, n_chars) in zip(labels, option_scores)
+                        ],
+                        "predicted": labels[predicted],
+                        "predicted_norm": labels[predicted_norm],
+                        "gold": labels[gold],
+                        "correct": predicted == gold,
+                        "correct_norm": predicted_norm == gold,
+                    }
+                    predictions_file.write(json.dumps(record, ensure_ascii=False) + "\n")
+                progress.update(len(indices))
+
+    _sort_predictions_file(predictions_path)
+
+    summary = {
+        "task": config.task,
+        "model_id": config.model_id,
+        "scoring": CHOICE_LOGLIK,
+        "num_examples": num_examples,
+        "num_correct": num_correct,
+        "accuracy": num_correct / num_examples if num_examples else 0.0,
+        "num_correct_norm": num_correct_norm,
+        "accuracy_norm": num_correct_norm / num_examples if num_examples else 0.0,
+        "batch_size": config.batch_size,
+        "sort_by_length": config.sort_by_length,
+        "prompt_format": getattr(generator, "prompt_format", None),
+    }
+    summary_path = output_dir / f"{config.task}_summary.json"
+    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    logger.info(
+        "Accuracy: %.4f (%d/%d); per-character: %.4f",
+        summary["accuracy"], num_correct, num_examples, summary["accuracy_norm"],
     )
     logger.info("Predictions written to %s", predictions_path)
     logger.info("Summary written to %s", summary_path)

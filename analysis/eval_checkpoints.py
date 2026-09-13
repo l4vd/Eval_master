@@ -58,7 +58,9 @@ class CheckpointEvalJob:
     benchmarks: tuple[str, ...] = _DEFAULT_BENCHMARKS
 
 
-def completed_benchmarks(out_dir: Path, benchmarks: tuple[str, ...] | list[str]) -> list[str]:
+def completed_benchmarks(
+    out_dir: Path, benchmarks: tuple[str, ...] | list[str], overrides: list[str] | None = None,
+) -> list[str]:
     """Which of `benchmarks` already have finished results under `out_dir`.
 
     All three launchers write their ``*summary*.json`` only after the benchmark
@@ -66,13 +68,62 @@ def completed_benchmarks(out_dir: Path, benchmarks: tuple[str, ...] | list[str])
     for HaluEval, ``summary.json`` for the harness), so its presence — unlike that of
     the incrementally-appended prediction files — means the benchmark ran to
     completion. A seed killed mid-benchmark therefore correctly reads as incomplete.
+
+    Which summary counts depends on the variant the run was launched with, read from its
+    Hydra ``overrides`` (the job's command line): ``halueval.scoring=constrained`` needs
+    a ``*_constrained_summary.json`` (``both`` needs that and an original one), a
+    ``faitheval.tasks`` list naming ``counterfactual_mc`` needs
+    ``counterfactual_mc_summary.json``, and ``ragtruth.stage=generate`` needs
+    ``generation_summary.json`` — otherwise a finished generate-only run would read as a
+    finished benchmark, and a modified run as the original.
     """
+    options = _override_map(overrides or [])
     done = []
     for name in benchmarks:
         bench_dir = out_dir / name
-        if bench_dir.is_dir() and any(bench_dir.glob("*summary*.json")):
+        if bench_dir.is_dir() and _is_complete(name, bench_dir, options):
             done.append(name)
     return done
+
+
+_VARIANT_SUMMARY_SUFFIXES = ("_constrained_summary.json", "_decontam_summary.json")
+
+
+def _override_map(overrides: list[str]) -> dict[str, str]:
+    options = {}
+    for token in overrides:
+        key, sep, value = token.lstrip("+").partition("=")
+        if sep:
+            options[key] = value.strip("'\"")
+    return options
+
+
+def _list_override(value: str | None) -> list[str] | None:
+    if value is None:
+        return None
+    return [t.strip().strip("'\"") for t in value.strip("[]").split(",") if t.strip()]
+
+
+def _is_complete(name: str, bench_dir: Path, options: dict[str, str]) -> bool:
+    summaries = [p.name for p in bench_dir.glob("*summary*.json")]
+    if name == "halueval":
+        original = any(s.endswith("_summary.json") and not s.endswith(_VARIANT_SUMMARY_SUFFIXES)
+                       for s in summaries)
+        constrained = any(s.endswith("_constrained_summary.json") for s in summaries)
+        scoring = options.get("halueval.scoring", "generate")
+        return {"constrained": constrained, "both": original and constrained}.get(scoring, original)
+    if name == "faitheval":
+        tasks = _list_override(options.get("faitheval.tasks"))
+        if tasks and "counterfactual_mc" in tasks:
+            others = [t for t in tasks if t != "counterfactual_mc"]
+            return (bench_dir / "counterfactual_mc_summary.json").is_file() and (
+                not others or any((bench_dir / f"{t}_summary.json").is_file() for t in others))
+        return any(s != "counterfactual_mc_summary.json" for s in summaries)
+    if name == "ragtruth":
+        if options.get("ragtruth.stage") == "generate":
+            return (bench_dir / "generation_summary.json").is_file()
+        return (bench_dir / "summary.json").is_file()
+    return bool(summaries)
 
 
 def _is_seed_checkpoint_dir(path: Path, checkpoint_subdir: str) -> bool:
@@ -228,7 +279,7 @@ def run_evaluations(
     for job in jobs:
         header = f"seed_{job.seed}" if job.seed is not None else "(no seed)"
         if resume and not dry_run:
-            done = completed_benchmarks(job.out_dir, job.benchmarks)
+            done = completed_benchmarks(job.out_dir, job.benchmarks, job.command)
             if len(done) == len(job.benchmarks):
                 print(f"\n==> [eval-checkpoints] {header}: SKIPPED (all "
                       f"{len(done)} benchmark(s) already complete in {job.out_dir})")

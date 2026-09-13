@@ -59,6 +59,69 @@ def write_halueval(
         )
 
 
+def write_halueval_constrained(
+    bench_dir: Path, per_task_auroc: Mapping[str, float], label: str = "synthetic",
+    n: int = 100, auroc_se: float = 0.02,
+) -> None:
+    """``<task>_<label>_constrained_summary.json`` as ``evaluate.py --scoring constrained`` writes it."""
+    bench_dir.mkdir(parents=True, exist_ok=True)
+    for task, auc in per_task_auroc.items():
+        summary = {
+            "task": task, "model": label, "backend": "hf", "scoring": "constrained",
+            "num_examples": n, "auroc": auc, "auroc_se": auroc_se, "accuracy_argmax": auc,
+            "tpr": auc, "tnr": auc, "judged_yes_rate": 0.5, "mean_verdict_mass": 0.9,
+            "median_verdict_mass": 0.95, "frac_mass_below_half": 0.05,
+        }
+        (bench_dir / f"{task}_{label}_constrained_summary.json").write_text(
+            json.dumps(summary, indent=2), encoding="utf-8"
+        )
+
+
+def write_halueval_decontam(
+    bench_dir: Path, per_task: Mapping[str, tuple[float, float]], label: str = "synthetic",
+    n: int = 100, n_seen: int = 10, constrained: bool = False,
+) -> None:
+    """``*_decontam_summary.json`` as ``score_results.decontam_summary`` writes it.
+
+    ``per_task`` maps a task to ``(decontaminated value, seen value)`` — accuracies, or
+    AUROCs with ``constrained=True``.
+    """
+    bench_dir.mkdir(parents=True, exist_ok=True)
+    scoring, metric = ("constrained", "auroc") if constrained else ("strict", "accuracy")
+    for task, (kept, seen) in per_task.items():
+        def block(value: float, count: int) -> dict:
+            return {"num_examples": count, scoring: {metric: value, f"{metric}_se": 0.01}}
+
+        overall = (kept * (n - n_seen) + seen * n_seen) / n
+        summary = {
+            "task": task, "model": label, "variant": "decontam",
+            "scoring": "constrained" if constrained else "generate",
+            "n_excluded": n_seen, "num_examples": n - n_seen, metric: kept, f"{metric}_se": 0.01,
+            "row_sets": {
+                "original": block(overall, n), "decontaminated": block(kept, n - n_seen),
+                "seen": block(seen, n_seen), "clean": block(kept, n - n_seen),
+            },
+            "contrasts": {"seen_minus_clean": {scoring: {"metric": metric, "diff": seen - kept, "se": 0.02}}},
+        }
+        suffix = "_constrained_decontam_summary.json" if constrained else "_decontam_summary.json"
+        (bench_dir / f"{task}_{label}{suffix}").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+
+
+def write_faitheval_mc(bench_dir: Path, accuracy: float, accuracy_norm: float | None = None,
+                       n: int = 100) -> None:
+    """``counterfactual_mc_summary.json`` (``scoring: choice_loglik``)."""
+    bench_dir.mkdir(parents=True, exist_ok=True)
+    norm = accuracy if accuracy_norm is None else accuracy_norm
+    summary = {
+        "task": "counterfactual_mc", "model_id": "synthetic", "scoring": "choice_loglik",
+        "num_examples": n, "num_correct": round(accuracy * n), "accuracy": accuracy,
+        "num_correct_norm": round(norm * n), "accuracy_norm": norm,
+    }
+    (bench_dir / "counterfactual_mc_summary.json").write_text(
+        json.dumps(summary, indent=2), encoding="utf-8"
+    )
+
+
 def write_ragtruth(
     bench_dir: Path,
     overall_rate: float,
@@ -137,14 +200,23 @@ def write_full_run(
     ragtruth_rate: float | None = None,
     truthfulqa: Mapping[str, float] | None = None,
     harness_rows: list[Mapping[str, object]] | None = None,
+    halueval_constrained: Mapping[str, float] | None = None,
+    halueval_decontam: Mapping[str, tuple[float, float]] | None = None,
+    faitheval_mc: float | None = None,
 ) -> Path:
     """Materialise a complete run dir with whichever benchmarks are requested."""
     run_dir = Path(run_dir)
     write_run_metadata(run_dir, seed)
     if faitheval is not None:
         write_faitheval(run_dir / "faitheval", faitheval)
+    if faitheval_mc is not None:
+        write_faitheval_mc(run_dir / "faitheval", faitheval_mc)
     if halueval is not None:
         write_halueval(run_dir / "halueval", halueval)
+    if halueval_constrained is not None:
+        write_halueval_constrained(run_dir / "halueval", halueval_constrained)
+    if halueval_decontam is not None:
+        write_halueval_decontam(run_dir / "halueval", halueval_decontam)
     if ragtruth_rate is not None:
         write_ragtruth(run_dir / "ragtruth", ragtruth_rate,
                        per_task_rate={"QA": ragtruth_rate, "Summary": ragtruth_rate})

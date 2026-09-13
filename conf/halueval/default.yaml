@@ -37,4 +37,32 @@ batch_size: 8 #32 rtx 8000 qwen 2.5 0.5b
 # batch composition does change, though, which can flip a greedy argmax tie — keep this
 # FIXED across every model you compare. Recorded in summary.json. Ignored on backend: openai.
 sort_by_length: desc
+
+# --- Modified protocols: opt-in, and the defaults below reproduce the original protocol ---
+# Anything other than `scoring: generate` / `decontam.enabled: false` is a MODIFIED protocol:
+# write it to its own output root ($EVAL_ROOT_MOD), never next to the original runs
+# (EXPERIMENT_PROCEDURE.md §5.2), and read it as context only.
+#
+# How a judgement is scored.
+#   generate    (default) the original protocol: decode a verdict and parse it; an
+#               unparseable verdict counts as wrong.
+#   constrained decode nothing: one prefill per row reads logP("Yes") vs logP("No") for the
+#               first answer token (raw logits, pooled once per token id over every token
+#               decoding to Yes/yes/YES, bare or after one space, and likewise No),
+#               scored by AUROC. No parser, so output format
+#               cannot move it; cheaper than generate. Labels are drawn exactly as in
+#               generate. Artifacts: <task>_<label>_constrained_{results,summary}.json; the
+#               original results file is never opened.
+#   both        the original run plus the prefill, over one model load.
+scoring: generate
+# Eval-side decontamination of a live run. When enabled AND
+# <exclusion_dir>/halueval__<task>.json exists (analysis/overlap.py --write-exclusions), the
+# run also writes <task>_<label>[_constrained]_decontam_summary.json: the same rows scored on
+# the original, decontaminated, seen, clean and unseen-exposed row sets (no extra model calls).
+# The original summary is written as always. exclusion_dir is relative to Eval_master.
+# For runs that already finished, use analysis/run_decontam.sh (no GPU) instead.
+decontam:
+  enabled: false
+  exclusion_dir: decontamination/ragtruth
+
 extra_args: []               # raw flags forwarded to evaluation/evaluate.py

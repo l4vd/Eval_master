@@ -55,6 +55,9 @@ class AnalysisConfig:
     #: Multiplicity procedure across the paired comparison family; see
     #: :func:`analysis.stats.adjust_pvalues`. "none" disables it explicitly.
     mc_method: str = DEFAULT_MC_METHOD
+    #: Which protocol trees to write: "original" (``out/``), "modified" (``out/modified/``)
+    #: or "both". See :func:`analysis.model.protocol_of`.
+    protocol: str = "both"
 
 
 @dataclass
@@ -110,33 +113,67 @@ def build_primary_predicate(override: dict | None) -> PrimaryPredicate:
 
 
 def build_records(config: AnalysisConfig) -> BuildResult:
-    """Discover + parse every arm into one RecordSet, plus per-arm metadata."""
+    """Discover + parse every arm into one RecordSet, plus per-arm metadata.
+
+    Repeating ``--arm NAME=SPEC`` with the same NAME merges the run dirs of every spec
+    into one arm — how an arm's original-protocol root and its modified-protocol root
+    (``$EVAL_ROOT/<arm>`` + ``$EVAL_ROOT_MOD/<arm>``) are read together. The merged arm
+    is a fixed point only if every spec is one, and two of its run dirs reporting the
+    same (seed, benchmark, task, metric) is an error: the roots overlap.
+    """
     is_primary = build_primary_predicate(config.primary_map)
     all_records = []
     arm_meta: dict[str, ArmMeta] = {}
 
+    specs_by_name: dict[str, list[ArmSpec]] = {}
     for arm in config.arms:
-        pairs = discover_arm(arm.spec)
-        if not pairs:
-            raise FileNotFoundError(
-                f"Arm '{arm.name}': no run dirs matched spec {arm.spec!r}"
-            )
-        seeds = [seed for _, seed in pairs]
-        for run_dir, seed in pairs:
-            all_records.extend(
-                parse_run_dir(
-                    Path(run_dir), arm.name, seed,
-                    is_primary=is_primary, benchmarks=config.benchmarks,
+        specs_by_name.setdefault(arm.name, []).append(arm)
+
+    for name, specs in specs_by_name.items():
+        all_pairs: list[tuple[Path, int | None]] = []
+        fixed: list[bool] = []
+        arm_records = []
+        for arm in specs:
+            pairs = discover_arm(arm.spec)
+            if not pairs:
+                raise FileNotFoundError(
+                    f"Arm '{arm.name}': no run dirs matched spec {arm.spec!r}"
                 )
-            )
-        is_fixed = _resolve_fixed(arm, pairs)
-        arm_meta[arm.name] = ArmMeta(
-            name=arm.name, is_fixed_point=is_fixed, seeds=seeds,
-            run_dirs=[str(rd) for rd, _ in pairs],
+            for run_dir, seed in pairs:
+                arm_records.extend(
+                    parse_run_dir(
+                        Path(run_dir), arm.name, seed,
+                        is_primary=is_primary, benchmarks=config.benchmarks,
+                    )
+                )
+            all_pairs.extend(pairs)
+            fixed.append(_resolve_fixed(arm, pairs))
+        if len(specs) > 1:
+            _check_no_duplicate_metrics(name, arm_records)
+            seeds = list(dict.fromkeys(seed for _, seed in all_pairs))
+        else:
+            seeds = [seed for _, seed in all_pairs]
+        all_records.extend(arm_records)
+        arm_meta[name] = ArmMeta(
+            name=name, is_fixed_point=all(fixed), seeds=seeds,
+            run_dirs=[str(rd) for rd, _ in all_pairs],
         )
 
     records = RecordSet(all_records).include_benchmarks(config.benchmarks, config.exclude)
     return BuildResult(records=records, arm_meta=arm_meta)
+
+
+def _check_no_duplicate_metrics(arm: str, records) -> None:
+    seen: set[tuple] = set()
+    for r in records:
+        key = (r.seed, r.benchmark, r.task, r.metric)
+        if key in seen:
+            raise ValueError(
+                f"Arm '{arm}': two of its run dirs report {r.benchmark}/{r.task}/{r.metric} "
+                f"for seed {r.seed}. A merged arm's specs must not overlap (point the second "
+                "--arm at the modified-protocol root only)."
+            )
+        seen.add(key)
 
 
 def _resolve_fixed(arm: ArmSpec, pairs: list[tuple[Path, int | None]]) -> bool:

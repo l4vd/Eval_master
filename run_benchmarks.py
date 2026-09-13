@@ -243,11 +243,31 @@ def build_halueval(cfg: DictConfig, out: Path) -> list[list[str]]:
             + _opt("--batch-size", b.get("batch_size", None))
             + _opt("--sort-by-length", b.get("sort_by_length", None))
             + _opt("--num-samples", samples)
+            # Modified protocols only when switched on, so a default run's command line is
+            # exactly what it has always been.
+            + (["--scoring", str(b.scoring)] if b.get("scoring", "generate") != "generate" else [])
+            + _halueval_exclusion_args(b, str(task))
             + ["--output-dir", str(out / "halueval")]
             + list(b.extra_args)
         )
         cmds.append(cmd)
     return cmds
+
+
+def _halueval_exclusion_args(b: DictConfig, task: str) -> list[str]:
+    """`--exclude-list` for `task`, only if `halueval.decontam.enabled` AND its list exists.
+
+    A task without a list (today: every task but summarization) has nothing to exclude, so
+    it runs with the original numbers only rather than failing.
+    """
+    decontam = b.get("decontam", None)
+    if not decontam or not decontam.get("enabled", False):
+        return []
+    path = ROOT / str(decontam.get("exclusion_dir", "decontamination/ragtruth")) / f"halueval__{task}.json"
+    if not path.is_file():
+        print(f"== halueval.decontam: no exclusion list for '{task}' ({path}); original numbers only.")
+        return []
+    return ["--exclude-list", str(path)]
 
 
 def build_ragtruth(cfg: DictConfig, out: Path) -> list[list[str]]:
@@ -263,6 +283,9 @@ def build_ragtruth(cfg: DictConfig, out: Path) -> list[list[str]]:
         + _opt("--detector-tokenizer-id", b.detector.tokenizer_id)
         + ["--dtype", str(cfg.model.dtype), "--device-map", str(cfg.model.device_map)]
         + _opt("--split", b.split)
+        + _opt("--batch-size", b.get("batch_size", None))
+        + _opt("--detector-batch-size", b.detector.get("batch_size", None))
+        + _opt("--detector-seed", b.detector.get("seed", None))
         + _opt("--num-samples", samples)
         + (["--task-types", *task_types] if task_types else [])
         + (["--gold-f1"] if b.gold_f1 else [])

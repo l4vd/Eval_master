@@ -22,6 +22,9 @@ shared `model` block.
 | `max_new_tokens` | int \| null | `null` | `--max-new-tokens` | `null` = the default for the prompt format in use: **16** for the flat/completion format, **128** for the chat format. See [Generation budget](#generation-budget). |
 | `seed` | int \| null | `42` | `--seed` | Seed for the coin flip choosing each row's hallucinated-vs-correct output. See [Seeding](#seeding). |
 | `batch_size` | int | `8` | `--batch-size` | Judge prompts per forward pass (`backend: hf` only). The dominant runtime lever here — see below. Lower it if `summarization` OOMs. |
+| `scoring` | str | `generate` | `--scoring` (only when not `generate`) | `generate` = the original protocol. `constrained` / `both` = the modified, parser-free Yes/No scorer. See [Modified protocols](#modified-protocols-opt-in). |
+| `decontam.enabled` | bool | `false` | `--exclude-list` (only if the task's list exists) | Also write a decontaminated summary at the end of the run. |
+| `decontam.exclusion_dir` | str | `decontamination/ragtruth` | — | Where the `halueval__<task>.json` lists live, relative to Eval_master. |
 | `extra_args` | list[str] | `[]` | (appended raw) | Any flag below not surfaced. |
 
 ### Tasks
@@ -83,6 +86,41 @@ is recorded in each `<task>_<label>_summary.json`.
 Full-size runs are the published protocol; use `num_samples` for iteration and debugging,
 not for the numbers you report against published baselines.
 
+## Modified protocols (opt-in)
+
+Both are off by default. With the defaults, the run, its command line and its artifacts are exactly
+the original protocol's. Anything else is a modified protocol: write it to its own output root
+(`$EVAL_ROOT_MOD`), never next to the original runs.
+
+**`scoring: constrained`** decodes nothing. One prefill per row reads the judge's next-token
+log-probabilities at the first answer position.
+
+- **Score.** Each verdict is pooled over every vocabulary token whose decoded text is `Yes`, ` Yes`,
+  `yes`, ` yes`, `YES` or ` YES` (likewise `No`), each token id once, and logP(Yes) − logP(No) is
+  scored by AUROC.
+- **What it avoids.** There is no parser, so no parse failures and no length bias. It reads raw
+  logits, so no `repetition_penalty` is applied.
+- **Labels.** They are drawn exactly as in `generate`.
+- **Artifacts.** It writes `<task>_<label>_constrained_{results,summary}.json` and never opens the
+  original results file. The summary holds `auroc`, `auroc_se`, `accuracy_argmax`, `tpr`, `tnr`,
+  `judged_yes_rate`, `mean_verdict_mass`, `frac_mass_below_half` and `verdict_tokens` (the pooled
+  raw vocabulary tokens, e.g. `ĠYes`, which stay distinct where decoded texts coincide).
+- **`both`** runs the original protocol and the prefill over one model load.
+
+Report `mean_verdict_mass` beside the AUROC: where "Yes" and "No" are both unlikely continuations,
+the argmax between them is forced.
+
+**`decontam.enabled: true`** writes `<task>_<label>[_constrained]_decontam_summary.json` at the
+end of the run, for every task that has an exclusion list. Today that is `summarization`, with 503
+rows (`SP-DPO-Base/KNOWN_ISSUES.md` §5). Computed from the rows the run already produced, it scores
+the original, decontaminated, seen, clean and unseen-exposed row sets with SEs, and the
+seen-minus-clean contrast. For runs that already finished, use `analysis/run_decontam.sh` instead:
+
+```bash
+python evaluation/score_results.py <run>/halueval/summarization_<label>_results.json \
+    --exclude ../decontamination/ragtruth/halueval__summarization.json --emit-summary <modified_run>/halueval
+```
+
 ## Model fields consumed
 
 The shared `model.id` is passed as `--model-path` (the HF judge), plus `--base-model-id`,
@@ -105,7 +143,14 @@ Writes per-sample results and a `<task>_<label>_summary.json` (flat: `task`, `ac
 `num_examples`, …) under `<output_dir>/halueval/`. When `--output-dir` is unset (not the
 launcher path) it falls back to the in-repo `<task>/` folder (legacy behaviour). The
 [analysis layer](../../analysis/README.md) reads `accuracy` (higher is better) as primary
-and synthesizes a `mean` task across the three.
+and synthesizes a `mean` task across the three. It reads constrained and decontaminated summaries
+into its separate `modified/` tree:
+
+| Benchmark name | Primary metric |
+| --- | --- |
+| `halueval.constrained` | `auroc` |
+| `halueval.decontam` | `accuracy` |
+| `halueval.constrained_decontam` | `auroc` |
 
 ### Reading the number
 

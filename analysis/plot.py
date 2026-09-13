@@ -28,7 +28,7 @@ import warnings
 from pathlib import Path
 
 from analysis.aggregate import ArmAggregate, aggregate_all
-from analysis.model import RecordSet
+from analysis.model import MODIFIED, ORIGINAL, RecordSet, protocol_of
 
 # Okabe-Ito: fixed categorical order. Black kept last (reads as text otherwise).
 _OKABE_ITO = [
@@ -39,6 +39,24 @@ _OKABE_ITO = [
 _POS_COLOR = "#009E73"
 _NEG_COLOR = "#D55E00"
 _ZERO_COLOR = "#888888"
+
+
+def _stem(benchmark: str) -> str:
+    """File stem for a benchmark's figures: ``halueval.constrained`` -> ``halueval__constrained``.
+
+    Keeps the variant in the name (``Path.with_suffix`` would read it as an extension) and
+    leaves every original benchmark's file names unchanged.
+    """
+    return benchmark.replace(".", "__")
+
+
+def _protocol_tag(benchmark: str) -> str:
+    """Title suffix marking a modified-protocol benchmark; empty for an original one."""
+    return " [modified protocol]" if protocol_of(benchmark) == MODIFIED else ""
+
+
+def _protocol_suffix(protocol: str | None) -> str:
+    return " (modified protocols: context only)" if protocol == MODIFIED else ""
 
 
 def arm_colors(arms: list[str]) -> dict[str, str]:
@@ -148,11 +166,12 @@ def plot_benchmark(
     ax.set_xticklabels([f"{t}\n{me}" for _, t, me in keys], fontsize=8)
     ax.set_ylabel("value")
     hib = next(iter(rs)).higher_is_better
-    ax.set_title(f"{benchmark} — arms by primary metric ({_direction_note(hib)})", fontsize=10)
+    ax.set_title(f"{benchmark}{_protocol_tag(benchmark)} — arms by primary metric "
+                 f"({_direction_note(hib)})", fontsize=10)
     _style_axes(ax)
     ax.margins(y=0.12)  # headroom so CI whiskers don't run into the top spine
     _legend_outside(ax)
-    return _save(fig, outdir / f"{benchmark}.png")
+    return _save(fig, outdir / f"{_stem(benchmark)}.png")
 
 
 def plot_tasks(
@@ -191,11 +210,12 @@ def plot_tasks(
     ax.set_xticklabels(tasks, fontsize=9)
     ax.set_ylabel(metric)
     hib = next(iter(rs)).higher_is_better
-    ax.set_title(f"{benchmark} — {metric} by task ({_direction_note(hib)})", fontsize=10)
+    ax.set_title(f"{benchmark}{_protocol_tag(benchmark)} — {metric} by task "
+                 f"({_direction_note(hib)})", fontsize=10)
     _style_axes(ax)
     ax.margins(y=0.12)  # headroom so CI whiskers don't run into the top spine
     _legend_outside(ax)
-    return _save(fig, outdir / f"{benchmark}_tasks.png")
+    return _save(fig, outdir / f"{_stem(benchmark)}_tasks.png")
 
 
 # =================================================================================
@@ -204,6 +224,7 @@ def plot_tasks(
 
 def plot_cross_benchmark_panels(
     records: RecordSet, outdir: Path, *, arm_order: list[str] | None = None,
+    protocol: str | None = None,
 ) -> Path | None:
     """One panel per benchmark (native scale), arms side by side on the primary metric mean."""
     plt = _mpl()
@@ -235,7 +256,8 @@ def plot_cross_benchmark_panels(
         _style_axes(ax)
     for j in range(len(benches), nrow * ncol):
         axes[j // ncol][j % ncol].axis("off")
-    fig.suptitle("Cross-benchmark summary — primary metric mean per arm", fontsize=11)
+    fig.suptitle("Cross-benchmark summary — primary metric mean per arm"
+                 + _protocol_suffix(protocol), fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     return _save(fig, outdir / "cross_benchmark_panels.png", tight=False)
 
@@ -244,7 +266,7 @@ def plot_cross_benchmark_panels(
 # 4: ranked deltas vs. reference (direction-normalized)
 # =================================================================================
 
-def plot_ranked_deltas(comparisons: list, outdir: Path) -> Path | None:
+def plot_ranked_deltas(comparisons: list, outdir: Path, *, protocol: str | None = None) -> Path | None:
     """Signed (improvement-oriented) delta of each arm vs. reference, sorted, per metric.
 
     Positive = the arm improves on the reference regardless of the metric's native
@@ -266,7 +288,8 @@ def plot_ranked_deltas(comparisons: list, outdir: Path) -> Path | None:
     ax.set_yticks(list(y))
     ax.set_yticklabels(labels, fontsize=7)
     ax.set_xlabel(f"signed improvement vs. '{reference}' (higher = better)")
-    ax.set_title("Ranked deltas vs. reference (direction-normalized)", fontsize=10)
+    ax.set_title("Ranked deltas vs. reference (direction-normalized)" + _protocol_suffix(protocol),
+                 fontsize=10)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.grid(axis="x", color="#DDDDDD", linewidth=0.6, zorder=0)
@@ -320,12 +343,14 @@ def plot_paired_deltas(
     stars = significance_stars(p) if p is not None else ""
     ax.set_title(
         f"{comparison.arm} vs {comparison.reference} — "
-        f"{comparison.benchmark}/{comparison.task}/{comparison.metric}\n"
+        f"{comparison.benchmark}/{comparison.task}/{comparison.metric}"
+        f"{_protocol_tag(comparison.benchmark)}\n"
         f"Wilcoxon p = {_fmt(p)} {stars}", fontsize=9,
     )
     _style_axes(ax)
     _legend_outside(ax)
-    safe = f"{comparison.arm}_vs_{comparison.reference}_{comparison.benchmark}_{comparison.task}_{comparison.metric}"
+    safe = (f"{comparison.arm}_vs_{comparison.reference}_{_stem(comparison.benchmark)}_"
+            f"{comparison.task}_{comparison.metric}")
     safe = safe.replace("/", "_").replace(":", "_").replace("::", "_")
     return _save(fig, outdir / f"paired_{safe}.png")
 
@@ -337,7 +362,7 @@ def plot_paired_deltas(
 def plot_all(
     records: RecordSet, outdir: Path, *,
     reference: str | None = None, comparisons: list | None = None,
-    arm_order: list[str] | None = None,
+    arm_order: list[str] | None = None, protocol: str | None = None,
 ) -> list[Path]:
     """Produce every figure the available data supports; returns the saved paths.
 
@@ -364,11 +389,11 @@ def plot_all(
             p = fn(records, bench, outdir, arm_order=arms)
             if p:
                 paths.append(p)
-    p = plot_cross_benchmark_panels(records, outdir, arm_order=arms)
+    p = plot_cross_benchmark_panels(records, outdir, arm_order=arms, protocol=protocol)
     if p:
         paths.append(p)
     if comparisons:
-        p = plot_ranked_deltas(comparisons, outdir)
+        p = plot_ranked_deltas(comparisons, outdir, protocol=protocol)
         if p:
             paths.append(p)
         aggregates = aggregate_all(records)
@@ -403,6 +428,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--reference", default=None)
     ap.add_argument("--benchmarks", default=None, help="comma-separated include list")
     ap.add_argument("--exclude", default=None, help="comma-separated exclude list")
+    ap.add_argument("--protocol", default="both", choices=[ORIGINAL, MODIFIED, "both"],
+                    help="plot only original- or only modified-protocol benchmarks (default: "
+                         "whatever the analysis dir holds; cli.py already writes the two to "
+                         "separate dirs)")
     args = ap.parse_args(argv)
 
     src = Path(args.src)
@@ -411,13 +440,22 @@ def main(argv: list[str] | None = None) -> int:
     include = args.benchmarks.split(",") if args.benchmarks else None
     exclude = args.exclude.split(",") if args.exclude else None
     records = records.include_benchmarks(include, exclude)
+    protocol = None
+    if args.protocol != "both":
+        records = records.by_protocol(args.protocol)
+        protocol = args.protocol if args.protocol == MODIFIED else None
 
     comparisons = None
     comp_path = src / "comparisons.json"
     if comp_path.exists():
         comparisons = _load_comparisons(comp_path)
+        if args.protocol != "both":
+            comparisons = [c for c in comparisons if protocol_of(c.benchmark) == args.protocol]
+    if protocol is None and records and all(protocol_of(b) == MODIFIED for b in records.benchmarks()):
+        protocol = MODIFIED
 
-    paths = plot_all(records, outdir, reference=args.reference, comparisons=comparisons)
+    paths = plot_all(records, outdir, reference=args.reference, comparisons=comparisons,
+                     protocol=protocol)
     print(f"Wrote {len(paths)} figures to {outdir}")
     return 0
 

@@ -1,0 +1,1036 @@
+{
+  "schema_version": 1,
+  "train": {
+    "name": "ragtruth",
+    "kind": "ragtruth",
+    "inputs": [
+      {
+        "path": "../../SP-DPO-Base/data/ragtruth/data2txt/train.jsonl",
+        "sha256": "fa7242bff39105754f7b18a4643b42a98d69ffe9f32a33da253a498eaa805bcc"
+      },
+      {
+        "path": "../../SP-DPO-Base/data/ragtruth/data2txt/val.jsonl",
+        "sha256": "7a98f27d923f879c86cdb5c2ed4aec259b7bb6d89640790b6cb6b573573db860"
+      },
+      {
+        "path": "../../SP-DPO-Base/data/ragtruth/data2txt/test.jsonl",
+        "sha256": "b1eaef340aebf5b4ad7caa9e419c22e7f386e7bdeb2baebeffc53424700bfd45"
+      },
+      {
+        "path": "../../SP-DPO-Base/data/ragtruth/qa/train.jsonl",
+        "sha256": "764f2e52b2b6b3536e5b5f80e72572f4f55f01fe439faf72d80f0443f2d878c6"
+      },
+      {
+        "path": "../../SP-DPO-Base/data/ragtruth/qa/val.jsonl",
+        "sha256": "a50451b43e131695021a87bb97133b325642edde501ce54b8ff2339b88dd626c"
+      },
+      {
+        "path": "../../SP-DPO-Base/data/ragtruth/qa/test.jsonl",
+        "sha256": "9498228f27bb9fa709635e64ce35348a487dc4ceda62296be7daf28a3cd34990"
+      },
+      {
+        "path": "../../SP-DPO-Base/data/ragtruth/summary/train.jsonl",
+        "sha256": "8c758cbe83f93c91e918335fd095083d1f871074a81e29d4d8983a2235d24aad"
+      },
+      {
+        "path": "../../SP-DPO-Base/data/ragtruth/summary/val.jsonl",
+        "sha256": "1c5d377df593030d991337fba9d7cd5c54b40c698eb4f21412590c8d46a7d5b7"
+      },
+      {
+        "path": "../../SP-DPO-Base/data/ragtruth/summary/test.jsonl",
+        "sha256": "96061f40fa8fa32b514cf3d5aefa32a5667c6a0a1008c6c96d2bc900483dd637"
+      },
+      {
+        "path": "../../SP-DPO-Base/data/ragtruth/raw/source_info.jsonl",
+        "sha256": "0dffc26ea9f3c1c3d7c7e8336b56ef1646e3cec876edffcca3c9c624d12d578b"
+      }
+    ],
+    "n_groups": 2965,
+    "n_texts_indexed": 13895,
+    "n_ngrams": 2217941,
+    "groups_by_exposure": {
+      "train": 1845,
+      "val": 332,
+      "test": 368,
+      "release_only": 420
+    },
+    "notes": []
+  },
+  "params": {
+    "ngram": 13,
+    "near_dup": 0.5,
+    "df_max": 10,
+    "exposure_topk": 3,
+    "normalization": "NFKC -> casefold -> [\\W_]+ -> ' '",
+    "containment": "shared distinct n-grams / distinct n-grams of the eval text"
+  },
+  "policy": "exclude rows whose best tier is exact or near_duplicate and whose exposure is train or val; exact/near_duplicate rows with test or release_only exposure are kept as the unseen-exposed control; partial rows are kept",
+  "eval_root": ".",
+  "git": {
+    "eval_master": "14574c112aeaa6fba37dca7db3d94cd7bdfb577f",
+    "train_repo": "b7ab3ec7c9593ce39cc53c943bf6c39f612f799e"
+  },
+  "boilerplate_ngrams_ignored": 1049,
+  "benchmarks": {
+    "halueval": {
+      "qa": {
+        "input": {
+          "path": "HaluEval-reproduce/data/qa_data.json",
+          "sha256": "ef2b9798c6defbf5041f9b814ae0139d9fe934d16e0c2760e20522779d5d6110"
+        },
+        "n_rows": 10000,
+        "tiers": {
+          "exact": 0,
+          "near_duplicate": 0,
+          "partial": 3,
+          "none": 9997
+        },
+        "exposure_by_tier": {
+          "train": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "val": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "test": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 1
+          },
+          "release_only": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 2
+          }
+        },
+        "fields": {
+          "knowledge": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 3,
+            "max_containment": 0.0889
+          },
+          "question": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 1,
+            "max_containment": 0.1333
+          }
+        },
+        "partial_containment": {
+          "median": 0.0889,
+          "max": 0.1333,
+          "n_ge_0.10": 1,
+          "n_ge_0.20": 0
+        },
+        "excluded": 0,
+        "unseen_exposed": 0,
+        "kept": 10000,
+        "clean": 10000,
+        "examples": {
+          "partial": [
+            {
+              "row": 4681,
+              "field": "question",
+              "containment": 0.1333,
+              "exposure": "test",
+              "source_ids": [
+                "11870"
+              ],
+              "shared_span": "clinton cash the untold story of how and why foreign governments and businesses helped make bill and hillary rich"
+            },
+            {
+              "row": 6933,
+              "field": "knowledge",
+              "containment": 0.0889,
+              "exposure": "release_only",
+              "source_ids": [
+                "15201"
+              ],
+              "shared_span": "lamar odom lamar joseph odom born november 6 1979 is an american retired professional basketball player"
+            },
+            {
+              "row": 3873,
+              "field": "knowledge",
+              "containment": 0.0556,
+              "exposure": "release_only",
+              "source_ids": [
+                "15713"
+              ],
+              "shared_span": "the band was inducted into the rock and roll hall of fame in"
+            }
+          ]
+        }
+      },
+      "dialogue": {
+        "input": {
+          "path": "HaluEval-reproduce/data/dialogue_data.json",
+          "sha256": "523d8ae99d36474ee79994a1b35c61f5f1566739a3abe9e302a1feadecede54c"
+        },
+        "n_rows": 10000,
+        "tiers": {
+          "exact": 0,
+          "near_duplicate": 0,
+          "partial": 0,
+          "none": 10000
+        },
+        "exposure_by_tier": {
+          "train": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "val": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "test": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "release_only": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          }
+        },
+        "fields": {},
+        "partial_containment": {
+          "median": null,
+          "max": null,
+          "n_ge_0.10": 0,
+          "n_ge_0.20": 0
+        },
+        "excluded": 0,
+        "unseen_exposed": 0,
+        "kept": 10000,
+        "clean": 10000,
+        "examples": {}
+      },
+      "summarization": {
+        "input": {
+          "path": "HaluEval-reproduce/data/summarization_data.json",
+          "sha256": "2c877f12b23d0d7dce6f5906dfe95ed9f145c316c2e9c56a7e7de288873e64e0"
+        },
+        "n_rows": 10000,
+        "tiers": {
+          "exact": 628,
+          "near_duplicate": 5,
+          "partial": 188,
+          "none": 9179
+        },
+        "exposure_by_tier": {
+          "train": {
+            "exact": 424,
+            "near_duplicate": 3,
+            "partial": 126
+          },
+          "val": {
+            "exact": 76,
+            "near_duplicate": 0,
+            "partial": 15
+          },
+          "test": {
+            "exact": 86,
+            "near_duplicate": 2,
+            "partial": 43
+          },
+          "release_only": {
+            "exact": 42,
+            "near_duplicate": 0,
+            "partial": 4
+          }
+        },
+        "fields": {
+          "document": {
+            "exact": 628,
+            "near_duplicate": 5,
+            "partial": 186,
+            "max_containment": 1.0
+          },
+          "hallucinated_summary": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 54,
+            "max_containment": 0.3295
+          },
+          "right_summary": {
+            "exact": 0,
+            "near_duplicate": 1,
+            "partial": 43,
+            "max_containment": 0.5
+          }
+        },
+        "partial_containment": {
+          "median": 0.0194,
+          "max": 0.3843,
+          "n_ge_0.10": 31,
+          "n_ge_0.20": 18
+        },
+        "excluded": 503,
+        "unseen_exposed": 130,
+        "kept": 9497,
+        "clean": 9367,
+        "affected_train_data": {
+          "summary/test": {
+            "sources": 86,
+            "sources_total": 130,
+            "pairs": 197,
+            "pairs_total": 300
+          },
+          "summary/train": {
+            "sources": 424,
+            "sources_total": 633,
+            "pairs": 1339,
+            "pairs_total": 2000
+          },
+          "summary/val": {
+            "sources": 76,
+            "sources_total": 112,
+            "pairs": 206,
+            "pairs_total": 300
+          }
+        },
+        "examples": {
+          "exact": [
+            {
+              "row": 0,
+              "field": "document",
+              "containment": 1.0,
+              "exposure": "test",
+              "source_ids": [
+                "15708"
+              ],
+              "shared_span": "Marseille, France (CNN)The French prosecutor leading an investigation into the crash of Germanwings Flight 9525 insisted Wednesday that he was not aware of any ..."
+            },
+            {
+              "row": 1,
+              "field": "document",
+              "containment": 1.0,
+              "exposure": "train",
+              "source_ids": [
+                "11316"
+              ],
+              "shared_span": "The Palestinian Authority officially became the 123rd member of the International Criminal Court on Wednesday, a step that gives the court jurisdiction over all..."
+            },
+            {
+              "row": 10,
+              "field": "document",
+              "containment": 1.0,
+              "exposure": "train",
+              "source_ids": [
+                "15701"
+              ],
+              "shared_span": "He's a blue chip college basketball recruit. She's a high school freshman with Down syndrome. At first glance Trey Moses and Ellie Meredith couldn't be more dif..."
+            },
+            {
+              "row": 100,
+              "field": "document",
+              "containment": 1.0,
+              "exposure": "train",
+              "source_ids": [
+                "15615"
+              ],
+              "shared_span": "That's some rich \"American Pie.\" The lyrics to the famed Don McLean song sold for $1.2 million Tuesday morning at an auction held by Christie's. \"Don McLean's m..."
+            },
+            {
+              "row": 101,
+              "field": "document",
+              "containment": 1.0,
+              "exposure": "test",
+              "source_ids": [
+                "15616"
+              ],
+              "shared_span": "Kanye West has settled a lawsuit with a paparazzi photographer he assaulted -- and the two have shaken on it. The photographer, Daniel Ramos, had filed the civi..."
+            }
+          ],
+          "near_duplicate": [
+            {
+              "row": 822,
+              "field": "document",
+              "containment": 0.6883,
+              "exposure": "train",
+              "source_ids": [
+                "11979",
+                "15719",
+                "15724"
+              ],
+              "shared_span": "the defendant brought terrorism into the backyards and main streets assistant u s attorney aloke chakravarty said the defendant thought that his values were more important than the people around him he wanted to awake the"
+            },
+            {
+              "row": 1034,
+              "field": "document",
+              "containment": 0.6877,
+              "exposure": "train",
+              "source_ids": [
+                "15704"
+              ],
+              "shared_span": "students and faculty members marched wednesday afternoon chanting we are not afraid we stand together after"
+            },
+            {
+              "row": 887,
+              "field": "document",
+              "containment": 0.6292,
+              "exposure": "test",
+              "source_ids": [
+                "11948"
+              ],
+              "shared_span": "a two stage falcon 9 rocket carrying an uncrewed cargo spacecraft called dragon on a flight from cape canaveral florida to the international space station that"
+            },
+            {
+              "row": 802,
+              "field": "document",
+              "containment": 0.5977,
+              "exposure": "test",
+              "source_ids": [
+                "15735"
+              ],
+              "shared_span": "at the exotic driving experience which bills itself as a chance to drive your dream car on a racetrack the"
+            },
+            {
+              "row": 441,
+              "field": "document",
+              "containment": 0.5554,
+              "exposure": "train",
+              "source_ids": [
+                "15689"
+              ],
+              "shared_span": "detective chief inspector paul johnson of the london metropolitan police flying squad said"
+            }
+          ],
+          "partial": [
+            {
+              "row": 391,
+              "field": "document",
+              "containment": 0.3843,
+              "exposure": "train",
+              "source_ids": [
+                "11960"
+              ],
+              "shared_span": "five young men were arrested saturday in melbourne australia in what police called a major counterterrorism operation"
+            },
+            {
+              "row": 247,
+              "field": "document",
+              "containment": 0.3797,
+              "exposure": "train",
+              "source_ids": [
+                "11385",
+                "11905",
+                "15812"
+              ],
+              "shared_span": "the u n security council voted tuesday in favor of an arms embargo on houthis the minority group that has taken over large swaths of yemen including its capital sanaa and supporters of former yemeni president ali abdullah saleh"
+            },
+            {
+              "row": 377,
+              "field": "document",
+              "containment": 0.3493,
+              "exposure": "train",
+              "source_ids": [
+                "11940",
+                "15624",
+                "15677"
+              ],
+              "shared_span": "portrayed hernandez as cold calculating and insecure a man who believed others should be grateful for his attention one capable of murder for merely disrespecting him in the presence of others"
+            },
+            {
+              "row": 1072,
+              "field": "document",
+              "containment": 0.3405,
+              "exposure": "train",
+              "source_ids": [
+                "12063"
+              ],
+              "shared_span": "and the radio crackled with warnings of flash floods amid the rain ferguson opened its polls at 6"
+            },
+            {
+              "row": 179,
+              "field": "document",
+              "containment": 0.3327,
+              "exposure": "train",
+              "source_ids": [
+                "12083",
+                "15794"
+              ],
+              "shared_span": "of the fatalities 142 were students at the university and the rest were security forces and campus security"
+            }
+          ]
+        }
+      },
+      "general": {
+        "input": {
+          "path": "HaluEval-reproduce/data/general_data.json",
+          "sha256": "73302cd97666b808fb94b5d8a4a2c924049c9484e609017a2f808c4a6d539219"
+        },
+        "n_rows": 4507,
+        "tiers": {
+          "exact": 0,
+          "near_duplicate": 0,
+          "partial": 1,
+          "none": 4506
+        },
+        "exposure_by_tier": {
+          "train": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 1
+          },
+          "val": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "test": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "release_only": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          }
+        },
+        "fields": {
+          "chatgpt_response": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 1,
+            "max_containment": 0.0093
+          }
+        },
+        "partial_containment": {
+          "median": 0.0093,
+          "max": 0.0093,
+          "n_ge_0.10": 0,
+          "n_ge_0.20": 0
+        },
+        "excluded": 0,
+        "unseen_exposed": 0,
+        "kept": 4507,
+        "clean": 4507,
+        "examples": {
+          "partial": [
+            {
+              "row": 3815,
+              "field": "chatgpt_response",
+              "containment": 0.0093,
+              "exposure": "train",
+              "source_ids": [
+                "12392"
+              ],
+              "shared_span": "2 3 minutes or until the whites are set and the yolks are"
+            }
+          ]
+        }
+      }
+    },
+    "faitheval": {
+      "unanswerable": {
+        "input": {
+          "path": "FaithEval-reproduce/data/faitheval/FaithEval-unanswerable-v1.0/test.jsonl",
+          "sha256": "3e61f86712bc0b138106757972488b4ebc895b1c61d3994b89b340ccc5f079ea"
+        },
+        "n_rows": 2492,
+        "tiers": {
+          "exact": 0,
+          "near_duplicate": 0,
+          "partial": 1,
+          "none": 2491
+        },
+        "exposure_by_tier": {
+          "train": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 1
+          },
+          "val": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "test": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "release_only": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          }
+        },
+        "fields": {
+          "context": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 1,
+            "max_containment": 0.0242
+          }
+        },
+        "partial_containment": {
+          "median": 0.0242,
+          "max": 0.0242,
+          "n_ge_0.10": 0,
+          "n_ge_0.20": 0
+        },
+        "excluded": 0,
+        "unseen_exposed": 0,
+        "kept": 2492,
+        "clean": 2492,
+        "examples": {
+          "partial": [
+            {
+              "row": 612,
+              "field": "context",
+              "containment": 0.0242,
+              "exposure": "train",
+              "source_ids": [
+                "14358"
+              ],
+              "shared_span": "ha ha ha ho ho ho and a couple of tra la las that s how we laugh the day away in the merry old land of oz"
+            }
+          ]
+        }
+      },
+      "inconsistent": {
+        "input": {
+          "path": "FaithEval-reproduce/data/faitheval/FaithEval-inconsistent-v1.0/test.jsonl",
+          "sha256": "b2a6a39675d4aee04d3c72b2c880202404014e039d6c847533189e5686270612"
+        },
+        "n_rows": 1500,
+        "tiers": {
+          "exact": 0,
+          "near_duplicate": 0,
+          "partial": 0,
+          "none": 1500
+        },
+        "exposure_by_tier": {
+          "train": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "val": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "test": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "release_only": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          }
+        },
+        "fields": {},
+        "partial_containment": {
+          "median": null,
+          "max": null,
+          "n_ge_0.10": 0,
+          "n_ge_0.20": 0
+        },
+        "excluded": 0,
+        "unseen_exposed": 0,
+        "kept": 1500,
+        "clean": 1500,
+        "examples": {}
+      },
+      "counterfactual": {
+        "input": {
+          "path": "FaithEval-reproduce/data/faitheval/FaithEval-counterfactual-v1.0/test.jsonl",
+          "sha256": "2c4dd1403d776650309b9d148376234bf63f9e2d81e444d4c8e3e2d7845d6623"
+        },
+        "n_rows": 1000,
+        "tiers": {
+          "exact": 0,
+          "near_duplicate": 0,
+          "partial": 2,
+          "none": 998
+        },
+        "exposure_by_tier": {
+          "train": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 1
+          },
+          "val": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "test": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 1
+          },
+          "release_only": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          }
+        },
+        "fields": {
+          "context": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 2,
+            "max_containment": 0.0067
+          }
+        },
+        "partial_containment": {
+          "median": 0.0054,
+          "max": 0.0067,
+          "n_ge_0.10": 0,
+          "n_ge_0.20": 0
+        },
+        "excluded": 0,
+        "unseen_exposed": 0,
+        "kept": 1000,
+        "clean": 1000,
+        "examples": {
+          "partial": [
+            {
+              "row": 639,
+              "field": "context",
+              "containment": 0.0067,
+              "exposure": "test",
+              "source_ids": [
+                "15143"
+              ],
+              "shared_span": "are substances composed of two or more different elements that are chemically bonded together"
+            },
+            {
+              "row": 159,
+              "field": "context",
+              "containment": 0.0041,
+              "exposure": "train",
+              "source_ids": [
+                "15228"
+              ],
+              "shared_span": "a chemical change results in the formation of one or more new substances"
+            }
+          ]
+        }
+      }
+    },
+    "truthfulqa": {
+      "TruthfulQA.csv": {
+        "input": {
+          "path": "TruthfulQA-reproduce/TruthfulQA.csv",
+          "sha256": "611ba198853a3fba1d7b62368318622a46f14c68adde867482fdb2844a94e882"
+        },
+        "n_rows": 790,
+        "tiers": {
+          "exact": 0,
+          "near_duplicate": 0,
+          "partial": 0,
+          "none": 790
+        },
+        "exposure_by_tier": {
+          "train": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "val": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "test": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "release_only": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          }
+        },
+        "fields": {},
+        "partial_containment": {
+          "median": null,
+          "max": null,
+          "n_ge_0.10": 0,
+          "n_ge_0.20": 0
+        },
+        "excluded": 0,
+        "unseen_exposed": 0,
+        "kept": 790,
+        "clean": 790,
+        "examples": {}
+      }
+    },
+    "harness": {
+      "truthfulqa": {
+        "input": {
+          "path": "outputs/eval/v3/dpo_ensemble-2epochs/seed_1337/harness/samples.jsonl",
+          "sha256": "16f594e3bb65409d44d39dacd61bafab265fb8fc0660186b4a46d0e7f0154a54"
+        },
+        "n_rows": 817,
+        "tiers": {
+          "exact": 0,
+          "near_duplicate": 0,
+          "partial": 0,
+          "none": 817
+        },
+        "exposure_by_tier": {
+          "train": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "val": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "test": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "release_only": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          }
+        },
+        "fields": {},
+        "partial_containment": {
+          "median": null,
+          "max": null,
+          "n_ge_0.10": 0,
+          "n_ge_0.20": 0
+        },
+        "excluded": 0,
+        "unseen_exposed": 0,
+        "kept": 817,
+        "clean": 817,
+        "examples": {}
+      }
+    },
+    "ragtruth_benchmark": {
+      "test": {
+        "inputs": [
+          {
+            "path": "RAGTruth-reproduce/dataset/source_info.jsonl",
+            "sha256": "859f513630e520edc73a59a01bc75d4c2b6f0481cf39ad8c0761ff8bdc00a78f"
+          },
+          {
+            "path": "RAGTruth-reproduce/dataset/response.jsonl",
+            "sha256": "bcc251fdd46341e8e9975879516a726b16dad5cb46bd5781dbcfc1ac0e01a640"
+          }
+        ],
+        "identity": {
+          "train": 0,
+          "val": 0,
+          "test": 368,
+          "release_only": 82,
+          "not_in_train": 0
+        },
+        "n_rows": 450,
+        "tiers": {
+          "exact": 450,
+          "near_duplicate": 0,
+          "partial": 0,
+          "none": 0
+        },
+        "exposure_by_tier": {
+          "train": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "val": {
+            "exact": 0,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "test": {
+            "exact": 368,
+            "near_duplicate": 0,
+            "partial": 0
+          },
+          "release_only": {
+            "exact": 82,
+            "near_duplicate": 0,
+            "partial": 0
+          }
+        },
+        "fields": {
+          "prompt": {
+            "exact": 0,
+            "near_duplicate": 450,
+            "partial": 0,
+            "max_containment": 0.9951
+          },
+          "source_info": {
+            "exact": 450,
+            "near_duplicate": 0,
+            "partial": 0,
+            "max_containment": 1.0
+          }
+        },
+        "partial_containment": {
+          "median": null,
+          "max": null,
+          "n_ge_0.10": 0,
+          "n_ge_0.20": 0
+        },
+        "excluded": 0,
+        "unseen_exposed": 450,
+        "kept": 450,
+        "clean": 0,
+        "affected_train_data": {
+          "data2txt/test": {
+            "sources": 144,
+            "sources_total": 144,
+            "pairs": 300,
+            "pairs_total": 300
+          },
+          "qa/test": {
+            "sources": 94,
+            "sources_total": 94,
+            "pairs": 300,
+            "pairs_total": 300
+          },
+          "summary/test": {
+            "sources": 130,
+            "sources_total": 130,
+            "pairs": 300,
+            "pairs_total": 300
+          }
+        },
+        "examples": {
+          "exact": [
+            {
+              "row": "11317",
+              "field": "source_info",
+              "containment": 1.0,
+              "exposure": "test",
+              "source_ids": [
+                "11317"
+              ],
+              "shared_span": "As goes Walmart, so goes the nation? Everyone from Apple CEO Tim Cook to the head of the NCAA slammed religious freedom laws being considered in several states ..."
+            },
+            {
+              "row": "11323",
+              "field": "source_info",
+              "containment": 1.0,
+              "exposure": "test",
+              "source_ids": [
+                "11323"
+              ],
+              "shared_span": "Easter is a cornerstone event in the Christian faith, but it's surrounded by interesting quirks. It celebrates the completion of Christ's mission of salvation i..."
+            },
+            {
+              "row": "11332",
+              "field": "source_info",
+              "containment": 1.0,
+              "exposure": "test",
+              "source_ids": [
+                "11332"
+              ],
+              "shared_span": "The classic video game \"Space Invaders\" was developed in Japan back in the late 1970's -- and now their real-life counterparts are the topic of an earnest polit..."
+            },
+            {
+              "row": "11349",
+              "field": "source_info",
+              "containment": 1.0,
+              "exposure": "test",
+              "source_ids": [
+                "11349"
+              ],
+              "shared_span": "Lauren Hill, who took her inspirational fight against brain cancer onto the basketball court and into the hearts of many, has died at age 19. The Indiana woman'..."
+            },
+            {
+              "row": "11353",
+              "field": "source_info",
+              "containment": 1.0,
+              "exposure": "test",
+              "source_ids": [
+                "11353"
+              ],
+              "shared_span": "Those poor fish must have been wondering what the heck was happening to them. The Oregon Parks and Recreation Department has reported that a section of a fiberg..."
+            }
+          ]
+        }
+      },
+      "all": {
+        "inputs": [
+          {
+            "path": "RAGTruth-reproduce/dataset/source_info.jsonl",
+            "sha256": "859f513630e520edc73a59a01bc75d4c2b6f0481cf39ad8c0761ff8bdc00a78f"
+          }
+        ],
+        "identity": {
+          "train": 1845,
+          "val": 332,
+          "test": 368,
+          "release_only": 420,
+          "not_in_train": 0
+        }
+      },
+      "internal_test_vs_train": {
+        "Data2txt": {
+          "n_sources": 150,
+          "exact": 0,
+          "near_duplicate": 0,
+          "partial": 150,
+          "none": 0,
+          "near_duplicates": []
+        },
+        "QA": {
+          "n_sources": 150,
+          "exact": 0,
+          "near_duplicate": 0,
+          "partial": 7,
+          "none": 143,
+          "near_duplicates": []
+        },
+        "Summary": {
+          "n_sources": 150,
+          "exact": 0,
+          "near_duplicate": 2,
+          "partial": 27,
+          "none": 121,
+          "near_duplicates": [
+            {
+              "source_id": "15786",
+              "tier": "near_duplicate",
+              "containment": 0.6502,
+              "train_source_ids": [
+                "11333",
+                "15625"
+              ]
+            },
+            {
+              "source_id": "11911",
+              "tier": "near_duplicate",
+              "containment": 0.5236,
+              "train_source_ids": [
+                "15823",
+                "15812"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  "not_checked": [],
+  "run_configs": []
+}

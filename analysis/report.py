@@ -53,22 +53,49 @@ def load_records(path: str | Path) -> RecordSet:
 # --- aggregate outputs -----------------------------------------------------------
 
 def write_aggregate(
-    arms: dict[str, ArmAggregate], outdir: str | Path, *, primary_only: bool = True
+    arms: dict[str, ArmAggregate], outdir: str | Path, *, primary_only: bool = True,
+    protocol: str | None = None,
 ) -> dict[str, Path]:
-    """Write ``aggregate.json`` (all arms, all metrics) + ``aggregate.tex`` (appendix)."""
+    """Write ``aggregate.json`` (all arms, all metrics) + ``aggregate.tex`` (appendix).
+
+    ``protocol`` labels the table; None (the original protocols) writes it unlabelled,
+    exactly as before protocols existed.
+    """
     outdir = Path(outdir)
     payload = {arm: agg.to_dict() for arm, agg in arms.items()}
     json_path = write_json(payload, outdir / "aggregate.json")
     tex_path = _as_path(outdir / "aggregate.tex")
-    tex_path.write_text(aggregate_to_latex(arms, primary_only=primary_only), encoding="utf-8")
+    tex_path.write_text(
+        aggregate_to_latex(arms, primary_only=primary_only, protocol=protocol), encoding="utf-8")
     return {"json": json_path, "tex": tex_path}
 
 
-def aggregate_to_latex(arms: dict[str, ArmAggregate], *, primary_only: bool = True) -> str:
+# Caption text for a labelled table. The tables are bare tabulars, so the label is both a
+# comment (for whoever opens the .tex) and a first row (for whoever reads the PDF).
+_PROTOCOL_LABELS = {
+    "modified": "Modified protocols: context only, reported beside the original numbers, "
+                "never instead of them",
+}
+
+
+def _protocol_lines(protocol: str | None, ncols: int) -> tuple[list[str], list[str]]:
+    if protocol is None:
+        return [], []
+    label = _PROTOCOL_LABELS.get(protocol, f"Protocol: {protocol}")
+    return ([f"% Protocol: {protocol}. {label}."],
+            [rf"\multicolumn{{{ncols}}}{{l}}{{\emph{{{_esc(label)}}}}} \\", r"\midrule"])
+
+
+def aggregate_to_latex(
+    arms: dict[str, ArmAggregate], *, primary_only: bool = True, protocol: str | None = None,
+) -> str:
     """One row per (arm, benchmark, task, metric): mean +/- std and 95% CI."""
+    comment, banner = _protocol_lines(protocol, 6)
     lines = [
+        *comment,
         r"\begin{tabular}{llllrl}",
         r"\toprule",
+        *banner,
         r"Arm & Benchmark & Task & Metric & Seeds & Mean $\pm$ Std (95\% CI) \\",
         r"\midrule",
     ]
@@ -92,23 +119,28 @@ def aggregate_to_latex(arms: dict[str, ArmAggregate], *, primary_only: bool = Tr
 
 # --- comparison outputs ----------------------------------------------------------
 
-def write_comparisons(comparisons: list, outdir: str | Path) -> dict[str, Path]:
+def write_comparisons(
+    comparisons: list, outdir: str | Path, *, protocol: str | None = None,
+) -> dict[str, Path]:
     """Write ``comparisons.json`` + ``comparisons.tex`` for the arm-vs-arm results."""
     outdir = Path(outdir)
     rows = [c.to_dict() for c in comparisons]
     json_path = write_json(rows, outdir / "comparisons.json")
     tex_path = _as_path(outdir / "comparisons.tex")
-    tex_path.write_text(comparisons_to_latex(comparisons), encoding="utf-8")
+    tex_path.write_text(comparisons_to_latex(comparisons, protocol=protocol), encoding="utf-8")
     return {"json": json_path, "tex": tex_path}
 
 
-def comparisons_to_latex(comparisons: list) -> str:
+def comparisons_to_latex(comparisons: list, *, protocol: str | None = None) -> str:
     """One row per comparison: signed delta vs. reference + test/CI per regime."""
     from analysis.stats import significance_stars
 
+    comment, banner = _protocol_lines(protocol, 6)
     lines = [
+        *comment,
         r"\begin{tabular}{lllrll}",
         r"\toprule",
+        *banner,
         r"Arm (vs.\ ref) & Benchmark & Task/Metric & $\Delta$ & Regime & Test/CI \\",
         r"\midrule",
     ]

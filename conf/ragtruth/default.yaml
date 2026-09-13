@@ -2,15 +2,33 @@
 # (the shared `model`) produces responses; a detector model flags them. No server.
 enabled: true
 python: null
-stage: all # generate | detect | all
-split: null # null/all, or train | dev | test
+# generate | detect | all. `all` runs both stages per checkpoint (and loads the 13B detector
+# per checkpoint). For a sweep, run `generate` per checkpoint, then ONE shared detection job
+# over every run dir, which loads the detector once: analysis/run_ragtruth_detect.sh.
+stage: all
+# test (default) = the 450 release-test sources, none of which the RAG-Truth study trained or
+# selected on. `all` evaluates all 2,965 release sources, including the 1,845 selected-train and
+# 332 selected-val ones (SP-DPO-Base/KNOWN_ISSUES.md §5) — the old `null` default; the CLI
+# warns whenever it runs that way. train | dev select a release split.
+split: test
 num_samples: null # null => use the global `num_samples`
 task_types: null # null = all, or a subset of [QA, Summary, Data2txt]
 gold_f1: false # reproduction mode: score detector vs gold labels (skips generation)
+# Stage 1 prompts per generate() call: left-padded, length-sorted, restored to dataset
+# order. Greedy, so a batch reproduces batch 1 up to padding ties. Recorded in
+# generation_summary.json and summary.json — keep it FIXED across compared models.
+batch_size: 8
 # The hallucination detector (Stage 2). Defaults to the RAGTruth authors' weights;
 # override `ragtruth.detector.id=<path>` to use your own trained detector.
 detector:
   id: "llama2_13b_lora_0217"
   base_model_id: null # base for a LoRA detector adapter
   tokenizer_id: null
+  # Detector prompts per generate() call (lower it on CUDA OOM).
+  batch_size: 4
+  # The detector samples (the authors' T=0.05, top_p 0.95, top_k 40), so it is seeded. The
+  # seed is re-applied before every run directory, so a directory's labels do not depend on
+  # which directories the shared job processed before it. batch_size and seed are recorded
+  # in summary.json — keep both FIXED across compared models.
+  seed: 42
 extra_args: [] # raw flags forwarded to src/run_eval.py

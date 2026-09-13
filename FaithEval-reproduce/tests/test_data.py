@@ -99,7 +99,7 @@ def test_shipped_phrase_match_configs_support_strict_match():
     yamls = sorted(configs.glob("*.yaml"))
     # Anti-vacuity: a moved configs/ dir, a renamed suffix or a scoring-value change would
     # otherwise empty the loop and leave this test passing while checking nothing.
-    assert {p.stem for p in yamls} == {"counterfactual", "inconsistent", "unanswerable"}
+    assert {p.stem for p in yamls} == {"counterfactual", "counterfactual_mc", "inconsistent", "unanswerable"}
 
     checked = []
     for path in yamls:
