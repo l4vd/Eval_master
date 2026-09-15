@@ -675,9 +675,11 @@ Every one of these is written into `summary.json` provenance.
 
 The harness path scores TruthfulQA MC1/MC2 by **log-likelihood ranking over fixed options**.
 There is no generation, no parser, and no length sensitivity: $\mathcal{P}$ is the identity
-and $\mathcal{G}$ produces scores rather than text. It is the only benchmark in scope where
-the confound of §7 **cannot operate by construction**, which is what makes it the reference
-against which FaithEval and HaluEval results must be read.
+and $\mathcal{G}$ produces scores rather than text. It is the only *original* protocol in scope
+where the confound of §7 **cannot operate by construction**, which is what makes it the reference
+against which FaithEval and HaluEval results must be read. The opt-in modified protocols
+constrained HaluEval (§4.8) and FaithEval `counterfactual_mc` (§3.8) share the property, but they
+are not the published protocols and are reported beside the originals, never instead of them.
 
 (`truthfulqa_gen` is the exception within the tag — it *is* generative and rouge/bleu-scored,
 so it does not share the control property of the MC tasks.)
