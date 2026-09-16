@@ -219,6 +219,31 @@ def build_eval_command(
     return cmd
 
 
+def validate_overrides(overrides: list[str]) -> None:
+    """Fail before any seed runs if an extra Hydra override does not parse.
+
+    Otherwise the launcher dies on its command line once per seed, and all that is left
+    per seed is the ``run_metadata.json`` written ahead of it. The usual cause is a
+    shell word-split list (``faitheval.tasks=[a,`` + ``b]``).
+    """
+    try:
+        from hydra.core.override_parser.overrides_parser import OverridesParser
+    except ImportError:  # launcher env without hydra: leave it to the launcher
+        return
+    parser = OverridesParser.create()
+    bad = []
+    for token in overrides:
+        try:
+            parser.parse_override(token)
+        except Exception as exc:  # HydraException; message is the ANTLR error
+            bad.append(f"  {token!r}: {str(exc).splitlines()[0]}")
+    if bad:
+        raise SystemExit(
+            "Invalid --launcher-extra Hydra override(s):\n" + "\n".join(bad)
+            + "\nA list value must reach the launcher as ONE argument "
+              "(e.g. 'faitheval.tasks=[a, b]'), not split on its spaces.")
+
+
 def plan_evaluations(
     spec: str,
     out_root: Path,
@@ -384,6 +409,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     benchmarks = tuple(args.benchmarks.split(",")) if args.benchmarks else _DEFAULT_BENCHMARKS
+    validate_overrides(args.launcher_extra or [])
     jobs = plan_evaluations(
         args.checkpoints, Path(args.out),
         checkpoint_subdir=args.checkpoint_subdir,

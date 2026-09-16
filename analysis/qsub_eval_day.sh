@@ -46,7 +46,33 @@ case "$MODE" in print|check|submit) ;; *) echo "error: mode must be print|check|
 [[ "$MODE" != submit || -n "$QSUB_RES" ]] || { echo "error: set QSUB_RES for submit" >&2; exit 2; }
 
 EXTRA="${EXTRA:-}"
-read -ra extra_words <<< "$EXTRA"
+# Split EXTRA into Hydra overrides on whitespace OUTSIDE brackets/quotes only. A plain
+# `read -ra` cut `faitheval.tasks=[a, b]` into `faitheval.tasks=[a,` + `b]`; Hydra
+# rejected those, so every seed failed at once, leaving only run_metadata.json behind.
+split_overrides() {
+    local s="$1" word="" c i depth=0 quote=""
+    extra_words=()
+    for ((i = 0; i < ${#s}; i++)); do
+        c="${s:i:1}"
+        if [[ -n "$quote" ]]; then
+            word+="$c"; [[ "$c" == "$quote" ]] && quote=""
+            continue
+        fi
+        case "$c" in
+            \'|\")     quote="$c"; word+="$c" ;;
+            \[|\{|\()  depth=$((depth + 1)); word+="$c" ;;
+            \]|\}|\))  depth=$((depth - 1)); word+="$c" ;;
+            ' '|$'\t') if (( depth > 0 )); then word+="$c"
+                       elif [[ -n "$word" ]]; then extra_words+=("$word"); word=""; fi ;;
+            *)         word+="$c" ;;
+        esac
+    done
+    [[ -z "$word" ]] || extra_words+=("$word")
+    if (( depth != 0 )) || [[ -n "$quote" ]]; then
+        echo "error: unbalanced brackets/quotes in EXTRA: $s" >&2; exit 2
+    fi
+}
+split_overrides "$EXTRA"
 mod_re='scoring=constrained|decontam\.enabled=true|counterfactual_mc'
 if [[ "$EXTRA" =~ $mod_re && "$OUT_ROOT" != *modified* ]]; then
     echo "error: EXTRA holds modified-protocol overrides; OUT_ROOT ($OUT_ROOT) must be a" >&2

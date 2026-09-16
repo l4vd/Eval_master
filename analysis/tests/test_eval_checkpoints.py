@@ -253,3 +253,28 @@ def test_resume_reruns_a_seed_missing_one_benchmark(tmp_path, monkeypatch):
         plan_evaluations(str(group), out, benchmarks=["faitheval", "harness"]), resume=True
     )
     assert len(calls) == 1  # not skipped
+
+
+def test_word_split_list_override_fails_before_any_seed_runs(tmp_path, monkeypatch):
+    import pytest
+
+    calls = _fake_launcher(monkeypatch)
+    group = _write_ckpt_ensemble(tmp_path / "grp", [42])
+    out = tmp_path / "eval"
+    split = ["halueval.scoring=constrained", "faitheval.tasks=[counterfactual_mc,",
+             "unanswerable]"]
+    with pytest.raises(SystemExit, match="faitheval.tasks"):
+        eval_checkpoints.main(["--checkpoints", str(group), "--out", str(out),
+                               "--launcher-extra", *split])
+    assert calls == [] and not out.exists()  # no metadata-only seed dirs left behind
+
+
+def test_list_override_with_spaces_is_accepted(tmp_path, monkeypatch):
+    calls = _fake_launcher(monkeypatch)
+    group = _write_ckpt_ensemble(tmp_path / "grp", [42])
+    rc = eval_checkpoints.main(
+        ["--checkpoints", str(group), "--out", str(tmp_path / "eval"),
+         "--benchmarks", "faitheval",
+         "--launcher-extra", "faitheval.tasks=[counterfactual_mc, unanswerable]"]
+    )
+    assert rc == 0 and "faitheval.tasks=[counterfactual_mc, unanswerable]" in calls[0]
