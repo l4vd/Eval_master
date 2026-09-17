@@ -31,6 +31,7 @@ run dirs ──discover──▶ (run_dir, seed) pairs ──parse──▶ Metr
 - [Reference arm & comparison regime](#reference-arm--comparison-regime)
 - [Benchmark selection](#benchmark-selection)
 - [Original and modified protocols](#original-and-modified-protocols)
+- [Optional: the all-variants overview](#optional-the-all-variants-overview)
 - [Overriding the primary metric](#overriding-the-primary-metric----primary-map)
 - [Generating runs first (`--run-evals`)](#generating-runs-first----run-evals)
 - [Train↔eval overlap and decontamination](#traineval-overlap-and-decontamination)
@@ -389,6 +390,63 @@ definition of "modified", so an old `records.jsonl` reloads as original.
 `--protocol original|modified|both` chooses which trees to write. Modified comparisons form their
 own multiplicity family and are context only, whatever their p-value.
 
+## Optional: the all-variants overview
+
+**Descriptive, not pre-registered**, and off unless asked for. The runbook is
+[RUNNING_NEW_OPTIONS.md §7](../RUNNING_NEW_OPTIONS.md#7-optional-all-variants-in-one-run-overview).
+
+**Layout.** Every variant sits in a sibling dir of the original, named like its benchmark:
+`<run>/halueval.constrained/`, `<run>/faitheval.strict/`, … The registry in
+[`variants.py`](variants.py) is the single source of truth for launcher, resume, derivation
+and parsing. Its unit statuses are:
+
+- `done`;
+- `missing` (plus `waiting on <source>` for a CPU unit);
+- `stale(reason)`: recorded settings or source sha differ;
+- `unavailable`: lenient without `raw_judgement`;
+- `unverified(field)`: counted as done.
+
+| Tool | Does |
+| --- | --- |
+| `python -m analysis.variants --root R` | Status of every unit under a root, totals still to compute, and the recorded knobs per variant. |
+| `./analysis/run_derive.sh --root R` (→ `analysis.derive`) | Derives every CPU variant (`halueval.parsed`, `.lenient`, `.decontam`, `.constrained_decontam`, `faitheval.strict`, `.wordmatch`, `.contains`). No GPU; originals are only read. |
+| `python -m analysis.adopt --from R_mod --into R` | Optional. Copies legacy constrained / `counterfactual_mc` GPU artifacts into sibling dirs. Never overwrites; the source root is unchanged. |
+| `run_analysis.sh --variants-overview` | Also parses the sibling dirs (their records join `modified/`) and writes `--out/overview/`. |
+| `python -m analysis.overview --from OUT` | Re-plots the overview from `OUT/records.jsonl` + `OUT/modified/records.jsonl`. |
+| `./analysis/qsub_overview_day.sh <DATE dir> [print\|check\|submit]` | PBS jobs for one training day: a GPU job per ensemble (`qsub_eval_day.sh` with `VARIANTS`), an optional base-model job (`BASE_MODEL`), and a CPU derive job over the whole root (`DERIVE_ONLY=1` for that alone). |
+| `./analysis/qsub_overview_compare.sh [print\|check\|submit]` | One CPU PBS job: derive, a status table, then one overview per arm set (`SETS`: `claims` = the §5.7 pairs, `families`, `all`) into `outputs/analysis/<root>_overview/`. |
+
+The cluster workflow, with every env variable and an end-to-end example starting from
+`SP-DPO-Base/scripts/qsub_train.sh`, is in
+[RUNNING_NEW_OPTIONS.md §7.3–§7.6](../RUNNING_NEW_OPTIONS.md#73-a-training-day-on-the-cluster-qsub_overview_daysh).
+`qsub_eval_day.sh` itself accepts `VARIANTS=all` or a comma list of variants.
+
+New benchmark names, each with `accuracy` as its primary metric:
+
+- `halueval.parsed`, `halueval.lenient`;
+- `faitheval.strict`, `faitheval.wordmatch`, `faitheval.contains`.
+
+The FaithEval variants also carry `mean_prediction_words`. `contains` adds `exact_match` and
+`accuracy_len_<1_5|6_20|21_60|61_plus>`. None of these are primary.
+
+A new-style FaithEval summary with `strict_match: true` routes to `faitheval.strict`. A summary
+in the wrong sibling dir is skipped with a warning. A variant found both flat and in its sibling
+dir is an error.
+
+**Without `--variants-overview`, dotted dirs are never read,** so the §5.8 analysis of a root
+that also holds overview dirs is byte-identical. With the flag, the original tree is still
+byte-identical.
+
+`overview/` holds only descriptive outputs; it never writes a `comparisons.json`:
+
+| File | Shows |
+| --- | --- |
+| `halueval_<task>.png`, `faitheval_<task>.png`, `harness.png` | One panel per variant, each with its own y-axis: arms as mean ± seed-bootstrap CI with faint seed dots, the reference arm as a dashed line, chance at 0.5 where meaningful. Arm order (by harness MC2) and colours are the same everywhere. |
+| `rank_grid.png` | Arms × variants, each cell the rank (1 = best, direction-aware). MC2 is the first column. |
+| `delta_vs_base.png` | (arm − base) / pooled seed SD, positive = better, diverging scale. |
+| `faitheval_length.png` | Arm accuracy against arm answer length per variant, and `contains` per length stratum. |
+| `overview.tsv`, `overview.md` | Arm × variant × task: mean, CI, seeds, rank, Δ/SD. |
+
 ## Overriding the primary metric — `--primary-map`
 
 Each benchmark has a **primary** ("headline") metric that drives the default comparisons
@@ -490,6 +548,7 @@ Written under `--out` (default `outputs/analysis/`):
 | `comparisons.tex`         | if comparing | LaTeX table: signed Δ + Wilcoxon p and family-adjusted p (paired) or CI (one-sample). Stars follow the adjusted p. |
 | `figures/*.png` + `*.pdf` | if plotting  | See below. Every figure is written as both a 150-dpi PNG and a vector PDF.                                   |
 | `modified/…`              | if there are modified records | The same files for the modified protocols, with a protocol row in each `.tex`. See [protocols](#original-and-modified-protocols). |
+| `overview/…`              | `--variants-overview` only | Descriptive arm-comparison figures and table across every variant. See [the overview](#optional-the-all-variants-overview). |
 
 ### Figures (`figures/`)
 
@@ -539,6 +598,13 @@ One test is marked `slow`: `tests/test_overlap.py::test_real_data_reproduces_kno
 It reads the real SP-DPO-Base and benchmark data (~20 s) and is skipped when either is absent;
 `-m 'not slow'` leaves it out.
 
+`tests/test_qsub_scripts.py` needs bash ≥ 4 (Git Bash on Windows; WSL's bash is skipped). It
+runs the `qsub_*.sh` writers in `print` mode, then executes the written jobs against a stub
+Eval_master whose `module`, `python` and wrapper scripts only log their arguments, so no HPC is
+needed. `tests/test_variants.py` needs Hydra, which the Eval_master `.venv` has. It composes the
+real config, stubs the subprocess runner, and compares every builder's commands with the
+launcher as of commit `5c8cf56`, the last one before the overview.
+
 ## Source map
 
 | File                                         | Role                                                                                                                                                                  |
@@ -558,3 +624,9 @@ It reads the real SP-DPO-Base and benchmark data (~20 s) and is skipped when eit
 | [`overlap.py`](overlap.py)                   | Train↔eval text-overlap checker: tiers, exposure, report, exclusion lists (stdlib only).                                                                             |
 | [`ragtruth_detect.py`](ragtruth_detect.py)   | The shared RAG-Truth detection job over an eval root (one detector load).                                                                                             |
 | [`cli.py`](cli.py)                           | `python -m analysis.cli` — ties it all together.                                                                                                                      |
+| [`variants.py`](variants.py)                 | Optional overview: variant registry, per-unit status, CPU derivation commands, root census (stdlib only).                                                             |
+| [`derive.py`](derive.py)                     | Optional overview: derive every CPU variant over a root.                                                                                                              |
+| [`adopt.py`](adopt.py)                       | Optional overview: copy legacy modified-protocol GPU artifacts into sibling dirs.                                                                                     |
+| [`overview.py`](overview.py)                 | Optional overview: descriptive arm-comparison figures, rank grid, Δ-vs-base grid, table.                                                                              |
+| [`qsub_overview_day.sh`](qsub_overview_day.sh), [`qsub_overview_compare.sh`](qsub_overview_compare.sh) | Optional overview: PBS job writers, counterparts of `qsub_eval_day.sh` / `qsub_comparisons.sh`.                                                      |
+| [`qsub_lib.sh`](qsub_lib.sh)                 | Shared helpers of the `qsub_*.sh` writers: bracket-aware override splitting, job header, code version.                                                                |

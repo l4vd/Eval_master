@@ -24,7 +24,8 @@ def write_run_metadata(run_dir: Path, seed: int | None) -> None:
     )
 
 
-def write_faitheval(bench_dir: Path, per_task_accuracy: Mapping[str, float], n: int = 100) -> None:
+def write_faitheval(bench_dir: Path, per_task_accuracy: Mapping[str, float], n: int = 100,
+                    **extra) -> None:
     bench_dir.mkdir(parents=True, exist_ok=True)
     for task, acc in per_task_accuracy.items():
         summary = {
@@ -33,6 +34,7 @@ def write_faitheval(bench_dir: Path, per_task_accuracy: Mapping[str, float], n: 
             "num_examples": n,
             "num_correct": round(acc * n),
             "accuracy": acc,
+            **extra,
         }
         (bench_dir / f"{task}_summary.json").write_text(
             json.dumps(summary, indent=2), encoding="utf-8"
@@ -120,6 +122,43 @@ def write_faitheval_mc(bench_dir: Path, accuracy: float, accuracy_norm: float | 
     (bench_dir / "counterfactual_mc_summary.json").write_text(
         json.dumps(summary, indent=2), encoding="utf-8"
     )
+
+
+def write_halueval_variant(
+    bench_dir: Path, per_task_accuracy: Mapping[str, float], variant: str,
+    label: str = "synthetic", n: int = 100,
+) -> None:
+    """``<task>_<label>_<variant>_summary.json`` as ``score_results.py --emit-variant`` writes it."""
+    bench_dir.mkdir(parents=True, exist_ok=True)
+    for task, acc in per_task_accuracy.items():
+        summary = {
+            "task": task, "model": label, "variant": variant, "scoring": "generate",
+            "source_results": f"{task}_{label}_results.json", "source_sha256": "0" * 64,
+            "num_examples": n, "num_scored": n, "accuracy": acc, "format_compliance": 0.9,
+            "tpr": acc, "tnr": acc, "judged_yes_rate": 0.5,
+        }
+        (bench_dir / f"{task}_{label}_{variant}_summary.json").write_text(
+            json.dumps(summary, indent=2), encoding="utf-8")
+
+
+def write_faitheval_rescored(
+    bench_dir: Path, per_task_accuracy: Mapping[str, float], rule: str,
+    n: int = 100, words: float = 50.0, strata: Mapping[str, float] | None = None,
+) -> None:
+    """``<task>_summary.json`` as ``FaithEval-reproduce/src/rescore.py --rule <rule>`` writes it."""
+    bench_dir.mkdir(parents=True, exist_ok=True)
+    for task, acc in per_task_accuracy.items():
+        summary = {
+            "task": task, "variant": rule, "scoring": "generate",
+            "source_predictions": f"{task}_predictions.jsonl", "source_sha256": "0" * 64,
+            "num_examples": n, "num_correct": round(acc * n), "accuracy": acc,
+            "mean_prediction_words": words,
+        }
+        if strata is not None:
+            summary["length_strata"] = {k: {"n": 10, "accuracy": v, "exact_match": 0.0}
+                                        for k, v in strata.items()}
+            summary["exact_match"] = 0.01
+        (bench_dir / f"{task}_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
 
 def write_ragtruth(

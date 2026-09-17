@@ -50,6 +50,23 @@ venv_root: ${oc.decode:${oc.env:VENV_ROOT,null}}
 # Print the commands instead of running them.
 dry_run: false
 
+# --- Optional all-variants overview (descriptive, not pre-registered) ---------------------
+# null = today's behaviour, unchanged. [all] or a list of variant names (analysis/variants.py:
+# halueval.constrained, faitheval.strict, ...) switches to the unit planner: every variant
+# of the run's benchmarks is computed into its own sibling dir <output_dir>/<bench>.<variant>/,
+# CPU variants are derived offline, and a status matrix is printed first (also on dry_run).
+# Cannot be combined with halueval.scoring / halueval.decontam.enabled / faitheval.strict_match
+# / counterfactual_mc in faitheval.tasks. See RUNNING_NEW_OPTIONS.md (overview section).
+variants: null
+# Overview mode only: skip units that are already done (their recorded settings match).
+resume: false
+# Overview mode only: re-run GPU units whose recorded settings differ from this launch
+# (otherwise they are listed and the launch exits 2).
+recompute_stale: false
+# Overview mode only: treat `unverified` units (a provenance field that could not be checked,
+# e.g. an old FaithEval summary without the dataset present) as stale.
+strict_provenance: false
+
 # Keep going if one benchmark exits non-zero (a per-benchmark summary is printed
 # at the end either way).
 continue_on_error: true

@@ -43,14 +43,20 @@ def infer_seed(run_dir: Path) -> int | None:
     return None
 
 
-def is_run_dir(path: Path) -> bool:
-    """A leaf run dir carries run_metadata.json or at least one benchmark subfolder."""
+def is_run_dir(path: Path, variants_overview: bool = False) -> bool:
+    """A leaf run dir carries run_metadata.json or at least one benchmark subfolder.
+
+    With ``variants_overview``, a sibling variant dir (``halueval.constrained/``) counts too.
+    """
     if (path / "run_metadata.json").exists():
         return True
-    return any((path / bench).is_dir() for bench in PARSERS)
+    if any((path / bench).is_dir() for bench in PARSERS):
+        return True
+    return variants_overview and any(
+        p.is_dir() for bench in PARSERS for p in path.glob(f"{bench}.*"))
 
 
-def expand_spec(spec: str) -> list[Path]:
+def expand_spec(spec: str, variants_overview: bool = False) -> list[Path]:
     """Resolve one arm spec (a dir, a group/multirun dir, or a glob) to run dirs.
 
     A container dir (group dir, multirun root) is expanded to its run-dir children;
@@ -66,21 +72,21 @@ def expand_spec(spec: str) -> list[Path]:
     for m in matches:
         if not m.is_dir():
             continue
-        if is_run_dir(m):
+        if is_run_dir(m, variants_overview):
             _add(run_dirs, seen, m)
             continue
         # Container: pick up run-dir children (seed_*, multirun numeric, or benchmark-bearing).
         for child in sorted(m.iterdir()):
             if not child.is_dir():
                 continue
-            if is_run_dir(child) or _SEED_DIR_RE.match(child.name) or child.name.isdigit():
+            if is_run_dir(child, variants_overview) or _SEED_DIR_RE.match(child.name) or child.name.isdigit():
                 _add(run_dirs, seen, child)
     return run_dirs
 
 
-def discover_arm(spec: str) -> list[tuple[Path, int | None]]:
+def discover_arm(spec: str, variants_overview: bool = False) -> list[tuple[Path, int | None]]:
     """Resolve an arm spec to ``[(run_dir, seed), ...]`` (seed None = fixed point)."""
-    return [(rd, infer_seed(rd)) for rd in expand_spec(spec)]
+    return [(rd, infer_seed(rd)) for rd in expand_spec(spec, variants_overview)]
 
 
 def _add(run_dirs: list[Path], seen: set[Path], path: Path) -> None:

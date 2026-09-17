@@ -32,6 +32,10 @@ rows an exclusion list keeps (`analysis/overlap.py --write-exclusions`), and
 original, decontaminated, seen, clean and unseen-exposed row sets side by side, with SEs and
 the seen-minus-clean contrast. The original summary is never touched.
 
+Re-scoring variants (the optional all-variants overview, descriptive only):
+`--emit-variant lenient|parsed --emit-summary DIR` writes `<task>_<label>_<variant>_summary.json`
+with `source_sha256`. `lenient` exits 3 and writes nothing for a file without `raw_judgement`.
+
 Usage:
     python score_results.py qa_<label>_results.json
     python score_results.py <run>/halueval/*_results.json --json scores.json
@@ -399,6 +403,7 @@ def decontam_summary(results_path, exclusion, rows=None):
         "variant": "decontam",
         "scoring": "constrained" if constrained else "generate",
         "source_results": results_path.name,
+        "source_sha256": file_sha256(results_path),
         "exclusion_list": exclusion["path"],
         "exclusion_list_sha256": exclusion["sha256"],
         "exclusion_report_sha256": exclusion.get("report_sha256"),
@@ -427,6 +432,81 @@ def decontam_summary(results_path, exclusion, rows=None):
 
 def decontam_summary_name(results_path):
     return f"{results_stem(results_path)}_decontam_summary.json"
+
+
+# --- Re-scoring variants (the optional overview, analysis/variants.py) ------------
+
+# lenient: parse_lenient over raw_judgement, unparseable rows counted wrong (as strict does).
+# parsed:  the strict parser, but accuracy over the rows it could parse only.
+EMIT_VARIANTS = ("lenient", "parsed")
+# Exit code for "this results file can never yield the variant" (lenient without
+# raw_judgement). analysis/variants.py maps it to `unavailable`, not to a failure.
+EXIT_UNAVAILABLE = 3
+
+
+def file_sha256(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def _own_provenance(results_path):
+    own_summary = Path(results_path).with_name(f"{results_stem(results_path)}_summary.json")
+    if not own_summary.is_file():
+        return {}
+    data = json.loads(own_summary.read_text(encoding="utf-8"))
+    return {k: data[k] for k in PROVENANCE_KEYS if k in data}
+
+
+def variant_summary(results_path, variant, rows=None):
+    """The `<task>_<label>_<variant>_summary.json` payload, or None if unavailable.
+
+    Descriptive re-scorings of a generate-mode results file; neither replaces the strict
+    number. None means the file cannot yield the variant (lenient needs raw_judgement).
+    """
+    if variant not in EMIT_VARIANTS:
+        raise ValueError(f"unknown variant {variant!r}; choose from {EMIT_VARIANTS}")
+    results_path = Path(results_path)
+    rows = load_rows(results_path) if rows is None else rows
+    if is_constrained(rows):
+        raise ValueError(f"{results_path.name} is a constrained results file; "
+                         f"--emit-variant {variant} re-scores generate-mode results only")
+    if variant == "lenient":
+        if not any("raw_judgement" in row for row in rows):
+            return None
+        scores = score(rows, parse_lenient, "raw_judgement")
+        accuracy, n = scores["accuracy"], scores["num_examples"]
+    else:
+        scores = score(rows, parse_strict, "judgement")
+        n = scores["num_examples"] - scores["num_failed"]
+        accuracy = ratio(scores["num_correct"], n)
+    task = results_task(results_path)
+    stem = results_stem(results_path)
+    provenance = _own_provenance(results_path)
+    summary = {
+        "task": task,
+        "model": provenance.pop("model", stem[len(task) + 1:]),
+        "variant": variant,
+        "scoring": "generate",
+        "source_results": results_path.name,
+        "source_sha256": file_sha256(results_path),
+        **provenance,
+        "num_examples": scores["num_examples"],
+        "num_scored": n,
+        "num_correct": scores["num_correct"],
+        "accuracy": accuracy,
+        "accuracy_se": binomial_se(accuracy, n),
+        "num_failed": scores["num_failed"],
+        "format_compliance": scores["format_compliance"],
+        "num_ground_truth_yes": scores["num_ground_truth_yes"],
+        "num_ground_truth_no": scores["num_ground_truth_no"],
+        "tpr": scores["tpr"],
+        "tnr": scores["tnr"],
+        "judged_yes_rate": scores["judged_yes_rate"],
+    }
+    return summary
+
+
+def variant_summary_name(results_path, variant):
+    return f"{results_stem(results_path)}_{variant}_summary.json"
 
 
 # --- Reporting ------------------------------------------------------------------
@@ -502,14 +582,26 @@ def main():
                              "--write-exclusions); results of another task are skipped")
     parser.add_argument("--emit-summary", metavar="DIR", default=None,
                         help="with --exclude: write <task>_<label>[_constrained]_decontam_summary.json "
-                             "into DIR. DIR must not be the results' own directory: the "
-                             "decontaminated variant belongs in the modified-protocol root.")
+                             "into DIR; with --emit-variant: <task>_<label>_<variant>_summary.json. "
+                             "DIR must not be the results' own directory: a variant never sits "
+                             "next to the original protocol's artifacts.")
+    parser.add_argument("--emit-variant", choices=EMIT_VARIANTS, default=None,
+                        help="with --emit-summary: write a descriptive re-scoring of a generate-mode "
+                             "results file (the optional overview). 'lenient' = word-boundary "
+                             "parser over raw_judgement (exit 3, nothing written, when the file has "
+                             "no raw_judgement); 'parsed' = strict parser, accuracy over parsed rows.")
     args = parser.parse_args()
-    if args.emit_summary and not args.exclude:
-        parser.error("--emit-summary needs --exclude")
+    if args.emit_variant and args.exclude:
+        parser.error("--emit-variant and --exclude are separate variants; pass one")
+    if args.emit_variant and not args.emit_summary:
+        parser.error("--emit-variant needs --emit-summary")
+    if args.emit_summary and not (args.exclude or args.emit_variant):
+        parser.error("--emit-summary needs --exclude or --emit-variant")
 
     exclusion = load_exclusion_list(args.exclude) if args.exclude else None
     emit_dir = Path(args.emit_summary) if args.emit_summary else None
+    if args.emit_variant:
+        return _emit_variants(args.results, args.emit_variant, emit_dir)
     results = []
     for p in args.results:
         path = Path(p)
@@ -529,10 +621,7 @@ def main():
         _print_report(result)
         _print_decontam(summary)
         if emit_dir is not None:
-            if emit_dir.resolve() == path.parent.resolve():
-                raise SystemExit(f"refusing to write a decontaminated summary next to {path.name}: "
-                                 "that directory holds the original protocol's artifacts. Pass "
-                                 "the mirrored directory under the modified-protocol root.")
+            _refuse_results_dir(emit_dir, path)
             emit_dir.mkdir(parents=True, exist_ok=True)
             out = emit_dir / decontam_summary_name(path)
             out.write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -542,6 +631,32 @@ def main():
     if args.json_out:
         Path(args.json_out).write_text(json.dumps(results, indent=2), encoding="utf-8")
         print(f"\nWrote {args.json_out}")
+
+
+def _refuse_results_dir(emit_dir, path):
+    if emit_dir.resolve() == path.parent.resolve():
+        raise SystemExit(f"refusing to write a variant summary next to {path.name}: that directory "
+                         "holds the original protocol's artifacts. Pass the variant's own directory.")
+
+
+def _emit_variants(paths, variant, emit_dir):
+    """--emit-variant: one summary per results file. Exit 3 if any file cannot yield it."""
+    unavailable = []
+    for p in paths:
+        path = Path(p)
+        _refuse_results_dir(emit_dir, path)
+        summary = variant_summary(path, variant)
+        if summary is None:
+            print(f"  {path.name}: {variant} unavailable (no raw_judgement stored); nothing written")
+            unavailable.append(path.name)
+            continue
+        emit_dir.mkdir(parents=True, exist_ok=True)
+        out = emit_dir / variant_summary_name(path, variant)
+        out.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        print(f"  {path.name}: {variant} accuracy {summary['accuracy']:.4f} "
+              f"over {summary['num_scored']} rows; wrote {out}")
+    if unavailable:
+        raise SystemExit(EXIT_UNAVAILABLE)
 
 
 if __name__ == "__main__":

@@ -769,6 +769,10 @@ if __name__ == '__main__':
                              "<task>_<label>_constrained_{results,summary}.json; under "
                              "'constrained' the original results file is never opened. Anything "
                              "but 'generate' is a modified protocol: give it its own output root.")
+    parser.add_argument("--constrained-output-dir", dest="constrained_output_dir", default=None,
+                        help="Directory for the constrained results and summary (--scoring "
+                             "constrained/both). Defaults to --output-dir. The optional overview "
+                             "uses it to keep the variant in its own <run>/halueval.constrained/.")
     parser.add_argument("--exclude-list", dest="exclude_list", default=None,
                         help="An analysis/overlap.py exclusion list for this task. After the run, "
                              "also write <task>_<label>[_constrained]_decontam_summary.json, "
@@ -818,8 +822,12 @@ if __name__ == '__main__':
         results_dir = args.output_dir
     else:
         results_dir = args.task
+    constrained_dir = results_dir
+    if args.constrained_output_dir:
+        os.makedirs(args.constrained_output_dir, exist_ok=True)
+        constrained_dir = args.constrained_output_dir
     output_path = os.path.join(results_dir, "{}_{}_results.json".format(args.task, label))
-    constrained_path = os.path.join(results_dir, "{}_{}_constrained_results.json".format(args.task, label))
+    constrained_path = os.path.join(constrained_dir, "{}_{}_constrained_results.json".format(args.task, label))
 
     # Truncate any results from a previous run: the per-sample writes below append,
     # so without this a re-run would accumulate stale rows on top of the old file.
@@ -872,7 +880,7 @@ if __name__ == '__main__':
         # `max_new_tokens` stays for census uniformity; a constrained run decodes nothing.
         summary = dict(provenance, scoring="constrained", verdict_tokens=generator.verdict_tokens)
         summary.update(constrained)
-        summary_path = os.path.join(results_dir, "{}_{}_constrained_summary.json".format(args.task, label))
+        summary_path = os.path.join(constrained_dir, "{}_{}_constrained_summary.json".format(args.task, label))
         with open(summary_path, 'w', encoding='utf-8') as f:
             json.dump(summary, f, indent=2)
         print("Constrained summary written to {}".format(summary_path))
@@ -881,7 +889,7 @@ if __name__ == '__main__':
     if exclusion is not None:
         for results_path in scored_results:
             decontam = decontam_summary(results_path, exclusion)
-            decontam_path = os.path.join(results_dir, decontam_summary_name(results_path))
+            decontam_path = os.path.join(os.path.dirname(results_path), decontam_summary_name(results_path))
             with open(decontam_path, 'w', encoding='utf-8') as f:
                 json.dump(decontam, f, indent=2)
             print("Decontaminated summary written to {} ({} rows excluded{})".format(

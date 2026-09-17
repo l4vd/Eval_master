@@ -14,13 +14,19 @@ See conf/config.yaml for all options, or `README-runner.md`.
 
 from __future__ import annotations
 
+import datetime
+import json
+import os
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import hydra
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig, OmegaConf, open_dict
+
+# Stdlib-only unit registry of the optional all-variants overview.
+from analysis import variants as V
 
 # Benchmark folders resolve relative to THIS file, so the launcher works from any
 # working directory (Hydra's `job.chdir: false` keeps cwd here, but we don't rely
@@ -181,7 +187,7 @@ def _model_common_map(cfg: DictConfig) -> list[str]:
     )
 
 
-def build_faitheval(cfg: DictConfig, out: Path) -> list[list[str]]:
+def build_faitheval(cfg: DictConfig, out: Path, *, output_dir: Path | None = None) -> list[list[str]]:
     b = cfg.faitheval
     samples = _resolve_samples(b, cfg)
     cmds = []
@@ -195,7 +201,7 @@ def build_faitheval(cfg: DictConfig, out: Path) -> list[list[str]]:
             + _opt("--sort-by-length", b.get("sort_by_length", None))
             + _opt("--num-samples", samples)
             + (["--strict-match"] if b.strict_match else [])
-            + ["--output-dir", str(out / "faitheval")]
+            + ["--output-dir", str(output_dir or out / "faitheval")]
             + list(b.extra_args)
         )
         cmds.append(cmd)
@@ -223,7 +229,10 @@ def build_truthfulqa(cfg: DictConfig, out: Path) -> list[list[str]]:
     return [cmd]
 
 
-def build_halueval(cfg: DictConfig, out: Path) -> list[list[str]]:
+def build_halueval(
+    cfg: DictConfig, out: Path, *, output_dir: Path | None = None,
+    constrained_output_dir: Path | None = None,
+) -> list[list[str]]:
     b = cfg.halueval
     samples = _resolve_samples(b, cfg)
     cmds = []
@@ -247,7 +256,8 @@ def build_halueval(cfg: DictConfig, out: Path) -> list[list[str]]:
             # exactly what it has always been.
             + (["--scoring", str(b.scoring)] if b.get("scoring", "generate") != "generate" else [])
             + _halueval_exclusion_args(b, str(task))
-            + ["--output-dir", str(out / "halueval")]
+            + ["--output-dir", str(output_dir or out / "halueval")]
+            + _opt("--constrained-output-dir", constrained_output_dir)
             + list(b.extra_args)
         )
         cmds.append(cmd)
@@ -334,6 +344,9 @@ CWD_SUBDIR = {"halueval": "evaluation"}
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     out = Path(cfg.output_dir).resolve()
+    if cfg.get("variants", None) is not None:
+        # The optional all-variants overview; without `variants` nothing below changes.
+        sys.exit(run_suite(cfg, out, overrides=_hydra_overrides()))
     if not cfg.dry_run:
         # TruthfulQA's `--output_path` (a file) needs its parent to exist before
         # the subprocess writes to it; the others create their own --output-dir.
@@ -399,6 +412,231 @@ def _summary(results: list[tuple[str, str]], out: Path) -> bool:
             "(continue_on_error kept the run going); exiting non-zero."
         )
     return bool(failed)
+
+
+# =====================================================================================
+# Optional all-variants overview (`variants=[all]`): descriptive, not pre-registered.
+# Every variant goes to its own sibling dir <out>/<bench>.<variant>/, units that are done
+# are skipped (`resume=true`), CPU variants are derived offline. See analysis/variants.py.
+# =====================================================================================
+
+
+def _hydra_overrides() -> list[str]:
+    try:
+        from hydra.core.hydra_config import HydraConfig
+
+        return list(HydraConfig.get().overrides.task)
+    except Exception:  # not under @hydra.main (tests)
+        return []
+
+
+def legacy_variant_switches(cfg: DictConfig) -> list[str]:
+    """Legacy variant switches that would write a variant into an original dir."""
+    found = []
+    h, f = cfg.halueval, cfg.faitheval
+    if str(h.get("scoring", "generate")) != "generate":
+        found.append(f"halueval.scoring={h.get('scoring')}")
+    decontam = h.get("decontam", None)
+    if decontam is not None and decontam.get("enabled", False):
+        found.append("halueval.decontam.enabled=true")
+    if f.get("strict_match", False):
+        found.append("faitheval.strict_match=true")
+    if "counterfactual_mc" in [str(t) for t in f.tasks]:
+        found.append("faitheval.tasks contains counterfactual_mc")
+    return found
+
+
+def overview_context(cfg: DictConfig) -> V.Context:
+    """What the overview's units are checked against: this launch's settings."""
+    h, f, hs = cfg.halueval, cfg.faitheval, cfg.harness
+    decontam = h.get("decontam", None)
+    exclusion_dir = decontam.get("exclusion_dir", "decontamination/ragtruth") if decontam is not None \
+        else "decontamination/ragtruth"
+    return V.Context(
+        tasks={"halueval": tuple(str(t) for t in h.tasks), "faitheval": tuple(str(t) for t in f.tasks)},
+        expected={
+            "halueval": {"num_samples": _resolve_samples(h, cfg), "seed": h.get("seed", None),
+                         "batch_size": h.get("batch_size", None),
+                         "sort_by_length": h.get("sort_by_length", None),
+                         "max_new_tokens": h.get("max_new_tokens", None)},
+            "faitheval": {"num_samples": _resolve_samples(f, cfg), "batch_size": f.get("batch_size", None),
+                          "sort_by_length": f.get("sort_by_length", None),
+                          "max_new_tokens": f.max_new_tokens, "split": f.split,
+                          "dtype": str(cfg.model.dtype)},
+            "harness": {"num_samples": _resolve_samples(hs, cfg), "batch_size": hs.batch_size,
+                        "dtype": str(cfg.model.dtype), "num_fewshot": hs.num_fewshot},
+        },
+        halueval_label=V.run_label(str(cfg.model.id)),
+        ragtruth_stage=str(cfg.ragtruth.get("stage", "all")),
+        exclusion_dir=ROOT / str(exclusion_dir),
+        faitheval_split=str(f.split),
+        strict_provenance=bool(cfg.get("strict_provenance", False)),
+    )
+
+
+def _one_task(cfg: DictConfig, bench: str, task: str, **fields) -> DictConfig:
+    """A config copy running one task of `bench` (with `fields` overridden)."""
+    copy = cfg.copy()
+    with open_dict(copy):
+        copy[bench].tasks = [task]
+        for key, value in fields.items():
+            copy[bench][key] = value
+    return copy
+
+
+def gpu_commands(cfg: DictConfig, out: Path, units: list) -> list[dict]:
+    """One entry per process: the base benchmark, its argv, and the units it produces.
+
+    Built with the legacy builders on a one-task config copy, so every flag matches a
+    legacy run; only the output dirs differ. A HaluEval task missing both scorings gets
+    `--scoring both` (one model load); one missing scoring runs alone, so a finished
+    original is never re-decoded or truncated.
+    """
+    todo = {u.key: u for u in units}
+    commands = []
+
+    def add(bench, cmds, produced):
+        for cmd in cmds:
+            commands.append({"bench": bench, "cmd": cmd, "units": produced})
+
+    for task in [str(t) for t in cfg.halueval.tasks]:
+        gen, con = todo.get(("halueval", task)), todo.get(("halueval.constrained", task))
+        if gen and con:
+            add("halueval", build_halueval(_one_task(cfg, "halueval", task, scoring="both"), out,
+                                           output_dir=out / "halueval",
+                                           constrained_output_dir=out / "halueval.constrained"), [gen, con])
+        elif gen:
+            add("halueval", build_halueval(_one_task(cfg, "halueval", task, scoring="generate"), out,
+                                           output_dir=out / "halueval"), [gen])
+        elif con:
+            add("halueval", build_halueval(_one_task(cfg, "halueval", task, scoring="constrained"), out,
+                                           output_dir=out / "halueval.constrained"), [con])
+    for (_name, task), unit in todo.items():
+        if unit.variant.base == "faitheval":
+            add("faitheval", build_faitheval(_one_task(cfg, "faitheval", task), out,
+                                             output_dir=out / unit.variant.name), [unit])
+    for name in ("truthfulqa", "ragtruth", "harness"):
+        unit = todo.get((name, V.WHOLE))
+        if unit:
+            add(name, BUILDERS[name](cfg, out), [unit])
+    order = [str(n) for n in cfg.run]
+    commands.sort(key=lambda c: order.index(c["bench"]))
+    return commands
+
+
+def code_version() -> tuple[str | None, str]:
+    """EVAL_MASTER_REV (the procedure's EVAL_BLOCK.txt value), else git HEAD, else None."""
+    rev = os.environ.get("EVAL_MASTER_REV", "").strip()
+    if rev:
+        return rev, "EVAL_MASTER_REV"
+    try:
+        proc = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True,
+                              text=True, timeout=10)
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout.strip(), "git"
+    except (OSError, subprocess.SubprocessError):
+        pass
+    print("!! launches.jsonl: no EVAL_MASTER_REV and no git revision; code version recorded as null")
+    return None, "none"
+
+
+def log_launch(out: Path, entry: dict) -> None:
+    """Append to <out>/launches.jsonl — the only launch history (.hydra/ is overwritten)."""
+    rev, source = code_version()
+    entry = {"time": datetime.datetime.now().isoformat(timespec="seconds"), **entry,
+             "code_version": rev, "code_version_source": source, "label": V.OVERVIEW_LABEL}
+    out.mkdir(parents=True, exist_ok=True)
+    with (out / "launches.jsonl").open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, default=str) + "\n")
+
+
+def run_suite(cfg: DictConfig, out: Path, *, overrides: list[str] | None = None,
+              runner=subprocess.run) -> int:
+    """The overview's unit planner. Returns the process exit code."""
+    print(f"==> Overview mode ({V.OVERVIEW_LABEL}); output dir: {out}")
+    print(f"==> Model: {cfg.model.id} (dtype={cfg.model.dtype})")
+    legacy = legacy_variant_switches(cfg)
+    if legacy:
+        print(f"!! variants= cannot be combined with the legacy variant switches {legacy}: they "
+              "would write a variant into an original dir. Drop them; the overview covers these "
+              "variants in their own dirs.")
+        return 2
+    bases = [str(n) for n in cfg.run if str(n) in BUILDERS and cfg[str(n)].get("enabled", True)]
+    requested = [cfg.variants] if isinstance(cfg.variants, str) else [str(v) for v in cfg.variants]
+    try:
+        chosen, explicit = V.resolve_variants(requested, bases)
+    except ValueError as exc:
+        print(f"!! {exc}")
+        return 2
+    if "halueval" in bases and str(cfg.halueval.backend) != "hf":
+        print("!! overview mode needs halueval.backend=hf (constrained scoring reads log-probabilities)")
+        return 2
+    ctx = overview_context(cfg)
+    resume, recompute = bool(cfg.get("resume", False)), bool(cfg.get("recompute_stale", False))
+    units = V.plan(out, chosen, ctx, explicit=explicit)
+    print(V.format_matrix(units, "\n==> Status (variant x task)"))
+
+    stale_gpu = [u for u in units if u.variant.kind == V.GPU and u.status.state == V.STALE]
+    if resume and stale_gpu and not recompute:
+        print("\n!! GPU units whose recorded settings differ from this launch:")
+        for u in stale_gpu:
+            print(f"     {u.variant.name}/{u.task}: {u.status.reason}")
+        print("   Refusing to mix settings: pass recompute_stale=true to re-run them, or fix the launch.")
+        return 2
+    for u in units:
+        if u.status.state == V.UNVERIFIED:
+            print(f"!! {u.variant.name}/{u.task}: {u.status.reason} could not be verified; treated as done")
+
+    gpu_units = [u for u in units if u.variant.kind == V.GPU
+                 and V.to_compute(u, resume=resume, recompute_stale=recompute)]
+    results: list[tuple[str, str]] = []
+    ran: list[dict] = []
+    for entry in gpu_commands(cfg, out, gpu_units):
+        name = entry["bench"]
+        folder = FOLDERS[name]
+        interpreter = _resolve_interpreter(cfg[name].get("python", None) or cfg.python, folder,
+                                           cfg.get("venv_root", None), dry_run=cfg.dry_run)
+        cwd = folder / CWD_SUBDIR[name] if name in CWD_SUBDIR else folder
+        full = [str(interpreter)] + entry["cmd"]
+        produced = ", ".join(f"{u.variant.name}/{u.task}" for u in entry["units"])
+        label = f"{name}: {produced}"
+        print(f"\n==> [{name}] {produced} (cwd={cwd})\n    {' '.join(full)}")
+        if cfg.dry_run:
+            results.append((label, "dry-run"))
+            continue
+        for u in entry["units"]:
+            # A killed run must read as missing, not as the previous run's "done".
+            for marker in V.markers(out, u.variant, u.task, ctx):
+                marker.unlink(missing_ok=True)
+            (out / u.variant.name).mkdir(parents=True, exist_ok=True)
+        proc = runner(full, cwd=str(cwd))
+        status = "ok" if proc.returncode == 0 else f"FAILED (exit {proc.returncode})"
+        results.append((label, status))
+        ran += [{"unit": f"{u.variant.name}/{u.task}", "was": str(u.status), "result": status}
+                for u in entry["units"]]
+        if proc.returncode != 0 and not cfg.continue_on_error:
+            break
+
+    cpu_units = [u for u in units if u.variant.kind == V.CPU]
+    if cpu_units:
+        print("\n==> CPU derivations (no model)")
+        derived = V.derive_run_dir(out, cpu_units, ctx, resume=resume, dry_run=bool(cfg.dry_run))
+        outcomes = (("planned", "dry-run"), ("waiting", "after GPU" if cfg.dry_run else "waiting on source"),
+                    ("unavailable", "unavailable"), ("ok", "ok"), ("failed", "FAILED (derive)"))
+        for kind, status in outcomes:
+            for variant, task in derived[kind]:
+                results.append((f"derive: {variant}/{task}", status))
+                if kind in ("ok", "failed", "unavailable"):
+                    ran.append({"unit": f"{variant}/{task}", "result": status})
+
+    if not cfg.dry_run:
+        log_launch(out, {"model": str(cfg.model.id), "variants": requested, "resume": resume,
+                         "recompute_stale": recompute, "overrides": overrides or [],
+                         "status": {f"{u.variant.name}/{u.task}": str(u.status) for u in units},
+                         "ran": ran})
+    if not results:
+        print("\n==> Nothing to do: every requested unit is done.")
+    return 1 if _summary(results, out) else 0
 
 
 if __name__ == "__main__":

@@ -14,9 +14,18 @@
 #   QSUB_RES="-l select=1:ncpus=4:mem=32gb:ngpus=1 -l walltime=24:00:00 -A <project>" \
 #       ./analysis/qsub_eval_day.sh /gpfs/.../outputs/2026-09-10 submit
 #
-# Env: OUT_ROOT (outputs/eval/v4), SUFFIX (""), BENCHES (faitheval,halueval,harness),
+# Env: OUT_ROOT (outputs/eval/v4-2), SUFFIX (""), BENCHES (faitheval,halueval,harness),
 #      JOB_NAME (DevSession), QSUB_RES (required for submit), JOB_DIR (logs/qsub_jobs/<DATE>),
-#      EXTRA (Hydra overrides forwarded via --launcher-extra, space-separated).
+#      EXTRA (Hydra overrides forwarded via --launcher-extra, space-separated),
+#      VARIANTS (unset; `all` or a comma list = the optional all-variants overview, see below).
+#
+# OPTIONAL overview (descriptive, not pre-registered): VARIANTS=all appends variants=[all] to
+# EXTRA (VARIANTS=halueval.constrained,faitheval.mc appends that list); qsub_overview_day.sh
+# wraps this with a base job and a CPU derive job. Every variant then lands in a sibling
+# <run>/<bench>.<variant>/ dir of OUT_ROOT (never in an original dir), finished units are
+# skipped, and the legacy variant keys below are refused in EXTRA. EVAL_MASTER_REV (from $OUT_ROOT/EVAL_BLOCK.txt, else git) is exported for
+# the launch log <run>/launches.jsonl.
+#   VARIANTS=all ./analysis/qsub_eval_day.sh /gpfs/.../outputs/2026-09-10 check
 #
 # Modified protocols (constrained HaluEval, decontam, counterfactual_mc) go to their OWN
 # root: --resume and the census read any summary under the original root as an original
@@ -31,6 +40,8 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+# shellcheck source=qsub_lib.sh
+source "${SCRIPT_DIR}/qsub_lib.sh"
 
 DAY="${1:?usage: $0 <SP-DPO-Base/outputs/DATE> [print|check|submit]}"
 MODE="${2:-print}"
@@ -46,35 +57,22 @@ case "$MODE" in print|check|submit) ;; *) echo "error: mode must be print|check|
 [[ "$MODE" != submit || -n "$QSUB_RES" ]] || { echo "error: set QSUB_RES for submit" >&2; exit 2; }
 
 EXTRA="${EXTRA:-}"
-# Split EXTRA into Hydra overrides on whitespace OUTSIDE brackets/quotes only. A plain
-# `read -ra` cut `faitheval.tasks=[a, b]` into `faitheval.tasks=[a,` + `b]`; Hydra
-# rejected those, so every seed failed at once, leaving only run_metadata.json behind.
-split_overrides() {
-    local s="$1" word="" c i depth=0 quote=""
-    extra_words=()
-    for ((i = 0; i < ${#s}; i++)); do
-        c="${s:i:1}"
-        if [[ -n "$quote" ]]; then
-            word+="$c"; [[ "$c" == "$quote" ]] && quote=""
-            continue
-        fi
-        case "$c" in
-            \'|\")     quote="$c"; word+="$c" ;;
-            \[|\{|\()  depth=$((depth + 1)); word+="$c" ;;
-            \]|\}|\))  depth=$((depth - 1)); word+="$c" ;;
-            ' '|$'\t') if (( depth > 0 )); then word+="$c"
-                       elif [[ -n "$word" ]]; then extra_words+=("$word"); word=""; fi ;;
-            *)         word+="$c" ;;
-        esac
-    done
-    [[ -z "$word" ]] || extra_words+=("$word")
-    if (( depth != 0 )) || [[ -n "$quote" ]]; then
-        echo "error: unbalanced brackets/quotes in EXTRA: $s" >&2; exit 2
+VARIANTS="${VARIANTS:-}"
+mod_re='scoring=(constrained|both)|decontam\.enabled=true|counterfactual_mc'
+variant_keys_re="${mod_re}|strict_match=true"
+if [[ -n "$VARIANTS" ]]; then
+    [[ "$VARIANTS" =~ ^[a-z_]+(\.[a-z_]+)?(,[a-z_]+(\.[a-z_]+)?)*$ ]] || {
+        echo "error: VARIANTS must be 'all' or a comma list of variant names (analysis/variants.py)" >&2; exit 2; }
+    if [[ "$EXTRA" =~ $variant_keys_re ]]; then
+        echo "error: VARIANTS computes every variant in its own dir; drop the legacy variant" >&2
+        echo "       overrides from EXTRA ($EXTRA)" >&2
+        exit 2
     fi
-}
+    [[ "$EXTRA" != *variants=* ]] || { echo "error: set VARIANTS, not variants= in EXTRA" >&2; exit 2; }
+    EXTRA="${EXTRA:+$EXTRA }variants=[$VARIANTS]"
+fi
 split_overrides "$EXTRA"
-mod_re='scoring=constrained|decontam\.enabled=true|counterfactual_mc'
-if [[ "$EXTRA" =~ $mod_re && "$OUT_ROOT" != *modified* ]]; then
+if [[ -z "$VARIANTS" && "$EXTRA" =~ $mod_re && "$OUT_ROOT" != *modified* ]]; then
     echo "error: EXTRA holds modified-protocol overrides; OUT_ROOT ($OUT_ROOT) must be a" >&2
     echo "       separate root containing 'modified', e.g. OUT_ROOT=${OUT_ROOT}_modified" >&2
     exit 2
@@ -82,6 +80,9 @@ fi
 
 cd "$ROOT_DIR"
 mkdir -p "$JOB_DIR"
+
+# Code version for the overview's launches.jsonl: the procedure's EVAL_BLOCK.txt, else git.
+EVAL_MASTER_REV="$(eval_master_rev "$OUT_ROOT")"
 
 declare -A seen
 n=0
@@ -97,6 +98,7 @@ for run in "$DAY"/*/; do
         printf '#!/bin/bash -l\n'
         printf 'CKPT=%q\nOUT=%q\nBENCHES=%q\n' "$run/seed_*" "$OUT_ROOT/$name$SUFFIX" "$BENCHES"
         printf 'EXTRA=(%s)\n' "${extra_words[*]@Q}"   # quoted: [counterfactual_mc] is a glob
+        printf 'export EVAL_MASTER_REV=%q\n' "$EVAL_MASTER_REV"
         cat <<'EOF'
 set -eo pipefail
 module load uv/0.10.2  gcc/13.2.0 Openssl/1.1.1t Tcl/8.6.11 Tk/8.6.13 Python/3.12.3 CUDA/11.7.1

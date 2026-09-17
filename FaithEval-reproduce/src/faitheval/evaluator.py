@@ -207,6 +207,12 @@ def run_evaluation(config: EvalConfig) -> dict[str, Any]:
         "batch_size": config.batch_size,
         "sort_by_length": config.sort_by_length,
         "max_new_tokens": config.max_new_tokens,
+        # Additive provenance (no metric changes): what a resumed or re-scored run is
+        # checked against. Summaries written before these keys existed lack them.
+        "num_samples": config.num_samples,
+        "split": config.split,
+        "strict_match": config.strict_match,
+        "dtype": config.dtype,
     }
 
     summary_path = output_dir / f"{config.task}_summary.json"
@@ -297,6 +303,9 @@ def _run_choice_loglik(
         "batch_size": config.batch_size,
         "sort_by_length": config.sort_by_length,
         "prompt_format": getattr(generator, "prompt_format", None),
+        "num_samples": config.num_samples,
+        "split": config.split,
+        "dtype": config.dtype,
     }
     summary_path = output_dir / f"{config.task}_summary.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")

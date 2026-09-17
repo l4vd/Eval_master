@@ -255,3 +255,102 @@ def test_resume_reads_the_variant_from_the_jobs_own_overrides(tmp_path, monkeypa
     original = eval_checkpoints.plan_evaluations(str(tmp_path / "grp"), out, benchmarks=["halueval"])
     eval_checkpoints.run_evaluations(original, resume=True)
     assert len(calls) == 1  # ...but it does finish the original one
+
+
+# --- the optional all-variants overview: sibling <bench>.<variant>/ dirs ----------------
+
+def _with_siblings(run_dir, base=0.4):
+    fixtures.write_halueval_constrained(run_dir / "halueval.constrained", {"qa": base + 0.3})
+    fixtures.write_halueval_variant(run_dir / "halueval.parsed", {"qa": base + 0.1}, "parsed")
+    fixtures.write_halueval_variant(run_dir / "halueval.lenient", {"qa": base + 0.05}, "lenient")
+    fixtures.write_faitheval_rescored(run_dir / "faitheval.strict", {"unanswerable": base - 0.2}, "strict")
+    fixtures.write_faitheval_rescored(run_dir / "faitheval.contains", {"counterfactual": base - 0.1}, "contains",
+                                      strata={"1_5": 0.6, "61_plus": 0.1})
+    fixtures.write_faitheval_mc(run_dir / "faitheval.mc", base + 0.2)
+
+
+def test_sibling_dirs_are_read_only_with_the_overview_flag(tmp_path):
+    run = fixtures.write_full_run(tmp_path / "run", seed=1, faitheval={"unanswerable": 0.3},
+                                  halueval={"qa": 0.5})
+    _with_siblings(run)
+    off = parse_run_dir(run, "arm", 1)
+    assert {r.benchmark for r in off} == {"faitheval", "halueval"}
+    on = _by_key(parse_run_dir(run, "arm", 1, variants_overview=True))
+    assert {b for b, _, _ in on} == {"faitheval", "halueval", "halueval.constrained", "halueval.parsed",
+                                     "halueval.lenient", "faitheval.strict", "faitheval.contains",
+                                     "faitheval.mc"}
+    assert on[("halueval.parsed", "qa", "accuracy")].is_primary
+    assert on[("faitheval.strict", "unanswerable", "accuracy")].value == pytest.approx(0.2)
+    assert not on[("faitheval.strict", "unanswerable", "mean_prediction_words")].is_primary
+    stratum = on[("faitheval.contains", "counterfactual", "accuracy_len_1_5")]
+    assert (stratum.value, stratum.n_samples, stratum.is_primary) == (0.6, 10, False)
+    # the original records are the same objects either way
+    assert [r for r in on.values() if r.benchmark in ("faitheval", "halueval")] == off
+
+
+def test_a_summary_in_the_wrong_variant_dir_is_skipped_with_a_warning(tmp_path):
+    run = fixtures.write_full_run(tmp_path / "run", seed=1, halueval={"qa": 0.5})
+    fixtures.write_halueval_variant(run / "halueval.lenient", {"qa": 0.7}, "parsed")
+    with pytest.warns(UserWarning, match="wrong variant dir"):
+        recs = parse_run_dir(run, "arm", 1, variants_overview=True)
+    assert {r.benchmark for r in recs} == {"halueval"}
+
+
+def test_a_variant_in_both_locations_is_an_error(tmp_path):
+    run = fixtures.write_full_run(tmp_path / "run", seed=1, halueval={"qa": 0.5},
+                                  halueval_constrained={"qa": 0.6})
+    fixtures.write_halueval_constrained(run / "halueval.constrained", {"qa": 0.6})
+    assert {r.benchmark for r in parse_run_dir(run, "arm", 1)} == {"halueval", "halueval.constrained"}
+    with pytest.raises(ValueError, match="both"):
+        parse_run_dir(run, "arm", 1, variants_overview=True)
+
+
+def test_strict_match_run_routes_to_faitheval_strict(tmp_path):
+    fixtures.write_faitheval(tmp_path / "faitheval", {"unanswerable": 0.12}, strict_match=True)
+    fixtures.write_faitheval(tmp_path / "f2" / "faitheval", {"unanswerable": 0.3}, strict_match=False)
+    assert {r.benchmark for r in parse_run_dir(tmp_path, "arm", 1)} == {"faitheval.strict"}
+    assert {r.benchmark for r in parse_run_dir(tmp_path / "f2", "arm", 1)} == {"faitheval"}
+
+
+def test_a_run_dir_with_only_sibling_dirs_is_found_only_with_the_flag(tmp_path):
+    from analysis.discover import expand_spec
+
+    fixtures.write_faitheval_mc(tmp_path / "grp" / "x" / "faitheval.mc", 0.5)
+    assert expand_spec(str(tmp_path / "grp" / "x")) == []
+    assert expand_spec(str(tmp_path / "grp" / "x"), variants_overview=True) == [tmp_path / "grp" / "x"]
+
+
+def _overview_roots(tmp_path):
+    orig, _ = _roots(tmp_path, modified=False)
+    plain = tmp_path / "plain_copy"
+    import shutil
+
+    shutil.copytree(orig, plain)
+    for arm in ("ref", "cur"):
+        for seed in (1, 2, 3):
+            _with_siblings(orig / arm / f"seed_{seed}", base=0.4 + 0.01 * seed + (0.05 if arm == "cur" else 0))
+    return orig, plain
+
+
+_ORIGINAL_TREE = ("records.jsonl", "aggregate.json", "aggregate.tex", "comparisons.json", "comparisons.tex")
+
+
+@pytest.mark.parametrize("flag", [[], ["--variants-overview"]])
+def test_original_tree_is_byte_identical_with_sibling_dirs_present(tmp_path, flag):
+    orig, plain = _overview_roots(tmp_path)
+    untouched, overview = tmp_path / "a", tmp_path / "b"
+    common = ["--reference", "ref", "--no-plot"]
+    assert main(["--arm", f"ref={plain / 'ref'}", "--arm", f"cur={plain / 'cur'}", *common,
+                 "--out", str(untouched)]) == 0
+    assert main(["--arm", f"ref={orig / 'ref'}", "--arm", f"cur={orig / 'cur'}", *common, *flag,
+                 "--out", str(overview)]) == 0
+    for name in _ORIGINAL_TREE:
+        assert (overview / name).read_bytes() == (untouched / name).read_bytes(), name
+    if not flag:
+        assert not (overview / "modified").exists() and not (overview / "overview").exists()
+        return
+    benchmarks = {r["benchmark"] for r in _jsonl(overview / "modified" / "records.jsonl")}
+    assert {"halueval.parsed", "halueval.lenient", "faitheval.strict", "faitheval.contains",
+            "halueval.constrained", "faitheval.mc"} <= benchmarks
+    assert (overview / "overview" / "overview.tsv").is_file()
+    assert not list((overview / "overview").rglob("comparisons.json"))

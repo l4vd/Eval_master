@@ -182,6 +182,12 @@ _CHAT_TEMPLATE = ("{% for m in messages %}{{ m['content'] }} {% endfor %}"
 
 
 def _tiny_judge(tmp_path, *, chat):
+    path, torch = _tiny_model_dir(tmp_path, chat=chat)
+    hf_local = _load("halueval_hf_local_constrained", "hf_local.py")
+    return hf_local.HFChatGenerator(model_id=str(path), device_map="cpu", dtype="float32", batch_size=3), torch
+
+
+def _tiny_model_dir(tmp_path, *, chat):
     transformers = pytest.importorskip("transformers")
     torch = pytest.importorskip("torch")
     from tokenizers import Tokenizer, models, pre_tokenizers
@@ -202,8 +208,7 @@ def _tiny_judge(tmp_path, *, chat):
     path = tmp_path / ("chat" if chat else "concat")
     transformers.LlamaForCausalLM(config).save_pretrained(path)
     tokenizer.save_pretrained(path)
-    hf_local = _load("halueval_hf_local_constrained", "hf_local.py")
-    return hf_local.HFChatGenerator(model_id=str(path), device_map="cpu", dtype="float32", batch_size=3), torch
+    return path, torch
 
 
 def _requests():
@@ -222,6 +227,39 @@ def test_prefill_logprobs_are_identical_at_batch_one_and_three(tmp_path, chat):
     assert judge.verdict_tokens == {"yes": ["Yes", "yes"], "no": ["No", "no"]}
     for logp_yes, logp_no in judge.verdict_logprobs(requests):
         assert logp_yes < 0 and logp_no < 0
+
+
+def _run_cli(tmp_path, model, *extra):
+    import subprocess
+
+    out = tmp_path / "run" / "halueval"
+    cmd = [sys.executable, "evaluate.py", "--task", "qa", "--model-path", str(model), "--device-map", "cpu",
+           "--dtype", "float32", "--num-samples", "4", "--seed", "1", "--max-new-tokens", "2",
+           "--output-dir", str(out), *extra]
+    proc = subprocess.run(cmd, cwd=str(_EVALUATION_DIR), capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr[-3000:]
+    return out, evaluate._run_label(str(model))
+
+
+@pytest.mark.slow
+def test_constrained_output_dir_keeps_the_variant_out_of_the_original_dir(tmp_path):
+    model, _ = _tiny_model_dir(tmp_path, chat=True)
+    constrained_dir = tmp_path / "run" / "halueval.constrained"
+    out, label = _run_cli(tmp_path, model, "--scoring", "both", "--constrained-output-dir", str(constrained_dir))
+    assert sorted(p.name for p in out.iterdir()) == [f"qa_{label}_results.json", f"qa_{label}_summary.json"]
+    assert sorted(p.name for p in constrained_dir.iterdir()) == [
+        f"qa_{label}_constrained_results.json", f"qa_{label}_constrained_summary.json"]
+    summary = json.loads((constrained_dir / f"qa_{label}_constrained_summary.json").read_text(encoding="utf-8"))
+    assert summary["scoring"] == "constrained" and summary["num_examples"] == 4
+
+
+@pytest.mark.slow
+def test_without_constrained_output_dir_both_sets_share_the_output_dir(tmp_path):
+    model, _ = _tiny_model_dir(tmp_path, chat=True)
+    out, label = _run_cli(tmp_path, model, "--scoring", "both")
+    assert {p.name for p in out.iterdir()} == {
+        f"qa_{label}_results.json", f"qa_{label}_summary.json",
+        f"qa_{label}_constrained_results.json", f"qa_{label}_constrained_summary.json"}
 
 
 @pytest.mark.slow

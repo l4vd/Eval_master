@@ -38,6 +38,7 @@ from dataclasses import dataclass, field
 from glob import glob
 from pathlib import Path
 
+from analysis import variants as V
 from analysis.discover import infer_seed
 
 # The Hydra launcher lives one level up from this package (mirrors cli._LAUNCHER).
@@ -124,6 +125,33 @@ def _is_complete(name: str, bench_dir: Path, options: dict[str, str]) -> bool:
             return (bench_dir / "generation_summary.json").is_file()
         return (bench_dir / "summary.json").is_file()
     return bool(summaries)
+
+
+def overview_variants(command: list[str]) -> list[str] | None:
+    """The `variants=` list of an overview launch, or None for a legacy one."""
+    value = _override_map(command).get("variants")
+    if value in (None, "", "null", "None"):
+        return None
+    return _list_override(value)
+
+
+def overview_pending(job: "CheckpointEvalJob") -> list[str]:
+    """Units of an overview launch that are missing or stale in the job's output dir.
+
+    The launch settings are not known here (the launcher composes them), so this checks
+    presence and CPU source hashes only; the launcher re-checks every unit's settings.
+    """
+    options = _override_map(job.command)
+    tasks = {}
+    for bench in ("halueval", "faitheval"):
+        listed = _list_override(options.get(f"{bench}.tasks"))
+        if listed:
+            tasks[bench] = tuple(listed)
+    ctx = V.Context(tasks=tasks, halueval_label=V.run_label(str(job.checkpoint)),
+                    ragtruth_stage=options.get("ragtruth.stage", "all"))
+    chosen, explicit = V.resolve_variants(overview_variants(job.command), list(job.benchmarks))
+    return [f"{u.variant.name}/{u.task}" for u in V.plan(job.out_dir, chosen, ctx, explicit=explicit)
+            if u.status.state in (V.MISSING, V.STALE)]
 
 
 def _is_seed_checkpoint_dir(path: Path, checkpoint_subdir: str) -> bool:
@@ -303,19 +331,33 @@ def run_evaluations(
     failures: list[int | None] = []
     for job in jobs:
         header = f"seed_{job.seed}" if job.seed is not None else "(no seed)"
-        if resume and not dry_run:
+        command = job.command
+        if resume and overview_variants(job.command) is not None:
+            # The optional all-variants overview resumes per unit inside the launcher.
+            if not any(t.startswith("resume=") for t in command):
+                command = command + ["resume=true"]
+            if not dry_run:
+                pending = overview_pending(job)
+                if not pending:
+                    print(f"\n==> [eval-checkpoints] {header}: SKIPPED (every overview unit "
+                          f"already done in {job.out_dir})")
+                    continue
+                more = " ..." if len(pending) > 8 else ""
+                print(f"\n==> [eval-checkpoints] {header}: {len(pending)} overview unit(s) to "
+                      f"compute: {', '.join(pending[:8])}{more}")
+        elif resume and not dry_run:
             done = completed_benchmarks(job.out_dir, job.benchmarks, job.command)
             if len(done) == len(job.benchmarks):
                 print(f"\n==> [eval-checkpoints] {header}: SKIPPED (all "
                       f"{len(done)} benchmark(s) already complete in {job.out_dir})")
                 continue
         print(f"\n==> [eval-checkpoints] {header}: {job.checkpoint}")
-        print("    " + " ".join(job.command))
+        print("    " + " ".join(command))
         if dry_run:
             continue
         job.out_dir.mkdir(parents=True, exist_ok=True)
         _write_run_metadata(job)
-        proc = subprocess.run(job.command)
+        proc = subprocess.run(command)
         if proc.returncode != 0:
             failures.append(job.seed)
             print(f"!! seed {job.seed} FAILED (exit {proc.returncode})")
@@ -377,7 +419,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--resume", action="store_true",
                     help="Skip seeds whose requested benchmarks all already wrote a "
                          "summary — re-submit after a walltime kill without redoing "
-                         "the seeds that finished.")
+                         "the seeds that finished. With variants= in --launcher-extra (the "
+                         "optional overview), a seed is skipped only when no unit is missing, "
+                         "and resume=true is forwarded so the launcher skips finished units.")
     ap.add_argument("--launcher-extra", nargs=argparse.REMAINDER, default=None,
                     help="Extra Hydra overrides forwarded to the launcher (must come last).")
     # --analyze group: chain straight into analysis.cli on the produced outputs.

@@ -18,6 +18,7 @@ as before (`run=[...]`, `--benchmarks a,b`); the options below are switches insi
 - [4. Overlap checker](#4-overlap-checker)
 - [5. Files each option writes](#5-files-each-option-writes)
 - [6. Checks after a run](#6-checks-after-a-run)
+- [7. Optional: all variants in one run (overview)](#7-optional-all-variants-in-one-run-overview)
 - [Option reference](#option-reference)
 
 ---
@@ -372,6 +373,224 @@ recorded in the summaries.
 
 ---
 
+## 7. Optional: all variants in one run (overview)
+
+**Descriptive, not pre-registered.** This is for looking at the results. It is not part of the
+study procedure. The three rules above stay the official ones, EXPERIMENT_PROCEDURE §5.4–§5.8 is
+unchanged, and the deciding metric stays harness MC2. Every output of this mode is labelled
+"overview — descriptive, not pre-registered".
+
+**What it does.**
+
+1. One launch computes every variant of a checkpoint.
+2. Each variant is written to its own **sibling dir**, `<run>/<bench>.<variant>/`, named like its
+   analysis benchmark. The original dirs keep exactly their content. The procedure's census,
+   format check, decontam check and `run_decontam.sh` glob `*/*/<bench>/…`, so they never see
+   the sibling dirs. That makes this the one allowed exception to rule 1.
+3. Nothing already computed is computed again. Resume works per **unit** (one variant × one
+   task), not per seed.
+4. `run_analysis.sh --variants-overview` plots how the arms compare under every variant.
+
+If you want `$EVAL_ROOT` untouched, point the overview at a copy. `analysis.adopt` and
+`analysis.derive` work on any root.
+
+| Variant dir | Kind | Produced by |
+|---|---|---|
+| `halueval`, `faitheval`, `harness` | GPU | the original runs (unchanged) |
+| `halueval.constrained` | GPU (prefill) | `evaluate.py --scoring constrained`, or `both` with `--constrained-output-dir` |
+| `faitheval.mc` | GPU (prefill) | `run_eval.py --task counterfactual_mc` |
+| `halueval.parsed` | CPU | `score_results.py --emit-variant parsed`: strict parser, accuracy over parsed rows only |
+| `halueval.lenient` | CPU | `score_results.py --emit-variant lenient`: word-boundary parser; `unavailable` without `raw_judgement` |
+| `halueval.decontam`, `halueval.constrained_decontam` | CPU | `score_results.py --exclude` (summarization) |
+| `faitheval.strict` | CPU | `rescore.py --rule strict` (`unknown` / `conflict` only) |
+| `faitheval.wordmatch` | CPU | `rescore.py --rule wordmatch` (valid phrases at word boundaries) |
+| `faitheval.contains` | CPU | `rescore.py --rule contains`: gold answer at word boundaries, per answer-length stratum, exact match alongside |
+
+RAG-Truth and TruthfulQA have no variants; the overview only resumes them as a whole. The
+`repetition_penalty` variant is not part of this.
+
+`contains` uses word boundaries. Its counterfactual level on local v3 is 0.248, against 0.271
+for the plain substring join in `analysis/format_confound.md` §3.1.
+
+### 7.1 Existing roots: CPU variants only (no GPU)
+
+```bash
+./analysis/run_derive.sh --root "$EVAL_ROOT" --dry-run   # what would be derived
+./analysis/run_derive.sh --root "$EVAL_ROOT"             # derive into sibling dirs
+.venv/bin/python -m analysis.variants --root "$EVAL_ROOT"   # status table + recorded knobs
+```
+
+`derive` reads the originals and writes only sibling dirs. Re-running it derives nothing new,
+unless a source file changed: every CPU summary records `source_sha256`. The FaithEval
+re-scorer needs only PyYAML, and `--faitheval-python` picks another interpreter.
+
+Optional: to reuse GPU results that already exist in a legacy modified root, copy them in with
+`python -m analysis.adopt --from "$EVAL_ROOT_MOD" --into "$EVAL_ROOT" [--dry-run]`. This copies
+only constrained HaluEval and `counterfactual_mc` files, and only into runs with the same
+`model_id` and label. It never overwrites and never touches the source root.
+
+### 7.2 One checkpoint, every variant
+
+```bash
+./run_all.sh model.id=/path/to/ckpt run='[faitheval,halueval,harness]' \
+    variants='[all]' resume=true output_dir=outputs/overview/ckpt dry_run=true   # plan first
+```
+
+The status matrix (variant × task) prints first. The GPU work then depends on what is missing:
+
+- **New checkpoint:** the original runs; HaluEval with `--scoring both` (one model load per
+  task); one `counterfactual_mc` process; then all CPU derivations.
+- **Checkpoint whose originals are done:** 3 constrained-only HaluEval processes and 1 MC
+  process. A finished original is never re-decoded.
+
+`variants` also takes a list, for example `variants='[halueval.constrained,faitheval.strict]'`.
+A CPU variant pulls in only the source tasks it needs.
+
+It refuses (exit 2):
+
+- the legacy variant switches (`halueval.scoring`, `halueval.decontam.enabled`,
+  `faitheval.strict_match`, `counterfactual_mc` in `faitheval.tasks`);
+- GPU units whose recorded settings differ from this launch (`num_samples`, `seed`, batch
+  size, …). Pass `recompute_stale=true` to re-run those units.
+
+An old FaithEval summary does not record `num_samples`. Its row count is checked against the
+dataset instead, and it is `unverified` where the dataset is absent (`strict_provenance=true`
+makes that stale). Before a GPU unit runs, its old summary is deleted, so a killed run reads as
+missing. Each launch appends to `<run>/launches.jsonl`. That entry records the unit statuses,
+what ran, the overrides and the code version (`EVAL_MASTER_REV`, else `git rev-parse HEAD`).
+
+### 7.3 A training day on the cluster: `qsub_overview_day.sh`
+
+The overview counterpart of `qsub_eval_day.sh`. For one training day it writes:
+
+- one GPU job per ensemble (`<DATE>/*/seed_*`). This is `qsub_eval_day.sh` with `VARIANTS` set;
+- with `BASE_MODEL` set, one GPU job for the base model into `$OUT_ROOT/base/run_0`;
+- one CPU job that derives the CPU variants over the **whole** `OUT_ROOT` and writes a status
+  table next to the job scripts.
+
+The derive job can run alongside the GPU jobs: a unit being recomputed has no summary, so its
+derivations wait for it. Modes are `print` (write jobs, show `qsub` lines), `check` (run every
+job here with `--dry-run`) and `submit`.
+
+```bash
+DAY=/gpfs/project/$USER/git-source/SP_DPO/SP-DPO-Base/outputs/2026-09-17
+EXTRA="model.dtype=bfloat16 harness.batch_size=8"          # the same as the originals ran with
+BASE_MODEL=/gpfs/project/$USER/models/huggingface/hub/Qwen/Qwen2.5-0.5B-Instruct \
+EXTRA="$EXTRA" ./analysis/qsub_overview_day.sh "$DAY" check
+
+QSUB_RES="-l select=1:ncpus=4:mem=32gb:ngpus=1 -l walltime=24:00:00 -A <project>" \
+QSUB_RES_derive="-l select=1:ncpus=2:mem=16gb -l walltime=04:00:00 -A <project>" \
+BASE_MODEL=... EXTRA="$EXTRA" ./analysis/qsub_overview_day.sh "$DAY" submit
+
+# a root whose originals are done: CPU variants only, no GPU
+DERIVE_ONLY=1 OUT_ROOT=outputs/eval/v4-2 QSUB_RES_derive="..." ./analysis/qsub_overview_day.sh - submit
+```
+
+| Env | Default | Meaning |
+|---|---|---|
+| `VARIANTS` | `all` | `all` or a comma list (`halueval.constrained,faitheval.mc`) |
+| `OUT_ROOT`, `SUFFIX`, `BENCHES` | as `qsub_eval_day.sh` | where the ensembles land: `$OUT_ROOT/<METHOD>_ensemble$SUFFIX/` |
+| `EXTRA` | — | Hydra overrides. Use the **same** ones the originals ran with, or every GPU unit reads as stale (exit 2). Legacy variant keys are refused. |
+| `RECOMPUTE_STALE` | unset | `1` re-runs stale GPU units (`recompute_stale=true`) |
+| `BASE_MODEL`, `BASE_DIR` | unset, `base/run_0` | adds the base-model job |
+| `DERIVE`, `DERIVE_ONLY` | `1`, unset | `DERIVE=0` drops the CPU job; `DERIVE_ONLY=1` writes only it (the day argument is then `-`) |
+| `QSUB_RES`, `QSUB_RES_base`, `QSUB_RES_derive` | —, `QSUB_RES`, `QSUB_RES` | resources per job type |
+| `JOB_NAME`, `JOB_DIR` | `Overview`, `logs/qsub_jobs/overview/<DATE>` | |
+| `EVAL_MASTER_DIR` | this checkout | where the jobs `cd` to |
+
+Every job exports `EVAL_MASTER_REV`. It is taken from `$OUT_ROOT/EVAL_BLOCK.txt` when that file
+exists, else from `git`, and it ends up in each run's `launches.jsonl`. With `variants=`
+present, `run_eval_checkpoints.sh --resume` skips a seed only when no unit is missing, and it
+forwards `resume=true`.
+
+`qsub_eval_day.sh` accepts the same `VARIANTS` directly (`all` or a list) if you want only the
+ensemble jobs.
+
+### 7.4 Analyse
+
+```bash
+./analysis/run_analysis.sh --arm base=... --arm dpo='.../seed_*' ... --reference base \
+    --variants-overview --out outputs/analysis/overview
+python -m analysis.overview --from outputs/analysis/overview   # re-plot without re-parsing
+```
+
+With the flag, the sibling dirs are parsed and their records join the `modified/` tree. The
+original tree stays byte-identical. `--out/overview/` then holds:
+
+- one figure per benchmark task: every arm under every variant, mean ± seed-bootstrap CI, base
+  as a dashed line, one arm order and colour everywhere (sorted by MC2);
+- `rank_grid.png`;
+- `delta_vs_base.png`: (arm − base) / pooled seed SD;
+- `faitheval_length.png`: accuracy against answer length;
+- `overview.tsv` / `.md`.
+
+The overview has no p-values and never writes a `comparisons.json`. Without the flag, the
+analysis ignores sibling dirs entirely.
+
+### 7.5 The comparison sets on the cluster: `qsub_overview_compare.sh`
+
+The overview counterpart of `qsub_comparisons.sh`, and one CPU job. It first brings the CPU
+variants of `OUT_ROOT` up to date and writes `status.tsv`. It then runs
+`run_analysis.sh --variants-overview --no-compare` once per arm set, into its own
+`ANALYSIS_ROOT` (default `outputs/analysis/<root>_overview`). The §5.7 comparisons and the §5.8
+table stay with `qsub_comparisons.sh`.
+
+Arms are found as in `qsub_comparisons.sh`: `$OUT_ROOT/<METHOD>_ensemble$SUFFIX/`, with base at
+`$OUT_ROOT/base/run_0`. Arm sets whose arms are missing are left out and listed.
+
+| `SETS` entry | Overviews written | Dashed line (Δ reference) |
+|---|---|---|
+| `claims` (default) | `claimA_dpo`, `claimA_orpo`, `sign_dpo`, `sign_orpo`, `claimB_dpo`, `claimB_orpo`: the §5.7 pairs | the pair's reference arm |
+| `families` (default) | `family_dpo`, `family_orpo`: base plus every evaluated arm of that objective | `base` |
+| `all` | `all_arms`: base plus every evaluated arm (past 8 arms, the colours fold to grey) | `base` |
+
+```bash
+OUT_ROOT=outputs/eval/v4-2 SUFFIX=-2epochs ./analysis/qsub_overview_compare.sh          # print
+OUT_ROOT=outputs/eval/v4-2 SUFFIX=-2epochs ./analysis/qsub_overview_compare.sh check    # dry-run the job
+QSUB_RES="-A <project> -l select=1:ncpus=2:mem=16gb -l walltime=04:00:00" \
+    OUT_ROOT=outputs/eval/v4-2 SUFFIX=-2epochs ./analysis/qsub_overview_compare.sh submit
+```
+
+Other env: `BENCHES`, `BASE_DIR`, `VARIANTS` (derive step, default `all`), `DERIVE=0` (skip
+the derive step), `PLOT=0` (tables only), `ANALYSIS_ROOT`, `JOB_NAME` (`Overview`), `JOB_DIR`
+(`logs/qsub_jobs/overview`), `EVAL_MASTER_DIR`.
+
+### 7.6 End to end: train, evaluate, overview
+
+The overview needs nothing special from training. A day trained with
+`SP-DPO-Base/scripts/qsub_train.sh` feeds straight into it:
+
+```bash
+# 1) train (SP-DPO-Base): a materialized profile variant and some arms
+cd /gpfs/project/$USER/git-source/SP_DPO/SP-DPO-Base
+PROFILE=materialize VARIANT=ups0_k8 MATERIALIZE_ARGS="--upsilon 0.0 --k0 8 --eta 0.55" \
+ARMS="dpo curriculum" ARGS_dpo="training.learning_rate=5e-5" SEEDS_off_sp_dpo_legacy="42 1337 2024" \
+QSUB_RES="-l select=1:ncpus=4:mem=32gb:ngpus=1 -l walltime=24:00:00 -A <project>" \
+  bash scripts/qsub_train.sh submit
+#    -> outputs/<DATE>/<HH-MM-SS>_<arm>_ensemble/seed_*   (ARMS="dpo curriculum" = dpo plus
+#       all seven off_sp_* arms, the ORPO ones included)
+
+# 2) evaluate every variant (Eval_master); keep the profile variant apart by SUFFIX
+cd /gpfs/project/$USER/git-source/SP_DPO/Eval_master
+SUFFIX=-ups0_k8 BASE_MODEL=... EXTRA="model.dtype=bfloat16 harness.batch_size=8" QSUB_RES="..." \
+  ./analysis/qsub_overview_day.sh ../SP-DPO-Base/outputs/<DATE> submit
+
+# 3) after the GPU jobs: the descriptive overviews
+SUFFIX=-ups0_k8 QSUB_RES="..." ./analysis/qsub_overview_compare.sh submit
+```
+
+Keep two names apart:
+
+- **`VARIANT` in `qsub_train.sh`** is the *difficulty profile* the curriculum trained on
+  (`ups0_k8`).
+- **`VARIANTS` in the overview scripts** are *scoring variants* of the evaluation.
+
+A second profile variant changes the checkpoints. Give it its own `SUFFIX` or `OUT_ROOT`, and
+never mix it into the arms of another profile. `base` is shared, and it is evaluated only once
+per root.
+
+---
+
 ## Option reference
 
 | Key / flag | Default | Values |
@@ -393,6 +612,14 @@ recorded in the summaries.
 | `run_decontam.sh --root / --out-root / --list` | — / — / all lists | see §2.3 |
 | `run_ragtruth_detect.sh --root / --dtype / --dry-run` | — / `bfloat16` / off | see §2.4 |
 | `run_overlap.sh --train / --harness-samples / --write-exclusions` | ragtruth / — / off | see §4 |
+| `variants` / `resume` / `recompute_stale` / `strict_provenance` | `null` / `false` / `false` / `false` | overview only, see §7 |
+| `evaluate.py --constrained-output-dir DIR` | `--output-dir` | where constrained artifacts go |
+| `score_results.py --emit-variant lenient\|parsed` | — | with `--emit-summary`; exit 3 = unavailable |
+| FaithEval `src/rescore.py --rule strict\|wordmatch\|contains\|lenient` | — | offline re-scoring, see §7 |
+| `run_derive.sh` / `analysis.variants` / `analysis.adopt` | — | see §7.1 |
+| `run_analysis.sh --variants-overview` | off | see §7.4 |
+| `qsub_eval_day.sh` `VARIANTS=all\|<list>` | unset | see §7.3 |
+| `qsub_overview_day.sh` / `qsub_overview_compare.sh` | — | cluster jobs for the overview, see §7.3 and §7.5 |
 
 The underlying CLIs accept the same options directly: `evaluate.py --scoring`,
 `evaluate.py --exclude-list`, FaithEval `run_eval.py --task counterfactual_mc`, and RAG-Truth

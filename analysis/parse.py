@@ -54,6 +54,12 @@ _HIGHER_IS_BETTER: dict[tuple[str, str], bool] = {
     ("halueval.decontam", "accuracy"): True,
     ("faitheval.mc", "accuracy"): True,
     ("faitheval.mc", "accuracy_norm"): True,
+    # Re-scoring variants of the optional overview (analysis/variants.py), descriptive only.
+    ("halueval.parsed", "accuracy"): True,
+    ("halueval.lenient", "accuracy"): True,
+    ("faitheval.strict", "accuracy"): True,
+    ("faitheval.wordmatch", "accuracy"): True,
+    ("faitheval.contains", "accuracy"): True,
 }
 
 
@@ -72,6 +78,11 @@ _PER_TASK_PRIMARY = {
     "halueval.constrained_decontam": "auroc",
     "halueval.decontam": "accuracy",
     "faitheval.mc": "accuracy",
+    "halueval.parsed": "accuracy",
+    "halueval.lenient": "accuracy",
+    "faitheval.strict": "accuracy",
+    "faitheval.wordmatch": "accuracy",
+    "faitheval.contains": "accuracy",
 }
 
 
@@ -107,9 +118,22 @@ def _coerce_float(value: Any) -> float | None:
 # Individual parsers. Signature: (bench_dir, arm, seed, is_primary) -> list[record]
 # =================================================================================
 
+# Offline re-scorings (FaithEval-reproduce/src/faitheval/rescore.py), by their `variant`.
+_FAITHEVAL_RESCORED = ("strict", "wordmatch", "contains")
+
+
 def _faitheval_benchmark(data: dict) -> str:
-    """``faitheval.mc`` for a multiple-choice log-likelihood summary, else the original."""
-    return "faitheval.mc" if data.get("scoring") == "choice_loglik" else "faitheval"
+    """``faitheval.mc`` for a multiple-choice log-likelihood summary, ``faitheval.<rule>`` for
+    an offline re-scoring, ``faitheval.strict`` for a run launched with ``--strict-match``
+    (recorded since ``strict_match`` joined the summary), else the original."""
+    if data.get("scoring") == "choice_loglik":
+        return "faitheval.mc"
+    variant = data.get("variant")
+    if variant in _FAITHEVAL_RESCORED:
+        return f"faitheval.{variant}"
+    if variant is None and data.get("strict_match") is True:
+        return "faitheval.strict"
+    return "faitheval"
 
 
 def parse_faitheval(
@@ -141,9 +165,30 @@ def parse_faitheval(
                     _mk(arm, seed, benchmark, task, "accuracy_norm", norm,
                         None, data.get("num_examples"), is_primary)
                 )
+        elif benchmark != "faitheval":
+            records.extend(_length_records(data, arm, seed, benchmark, task, is_primary))
     for benchmark, values in accs.items():
         _append_task_mean(records, arm, seed, benchmark, "accuracy", values, is_primary)
     return records
+
+
+def _length_records(data, arm, seed, benchmark, task, is_primary) -> list[MetricRecord]:
+    """Answer-length context of a variant: mean words, and the ``contains`` strata.
+
+    Only for variant benchmarks, so the original ``faitheval`` records stay as they were.
+    """
+    out: list[MetricRecord] = []
+    for metric in ("mean_prediction_words", "exact_match"):
+        value = _coerce_float(data.get(metric))
+        if value is not None:
+            out.append(_mk(arm, seed, benchmark, task, metric, value,
+                           None, data.get("num_examples"), is_primary))
+    for name, block in (data.get("length_strata") or {}).items():
+        value = _coerce_float((block or {}).get("accuracy"))
+        if value is not None:
+            out.append(_mk(arm, seed, benchmark, task, f"accuracy_len_{name}", value,
+                           None, block.get("n"), is_primary))
+    return out
 
 
 # Diagnostics HaluEval writes next to its accuracy. None is primary — they explain a
@@ -160,6 +205,8 @@ _DECONTAM_ROW_SETS = ("original", "seen", "clean", "unseen_exposed")
 
 def _halueval_benchmark(data: dict) -> str:
     constrained = data.get("scoring") == "constrained"
+    if data.get("variant") in ("lenient", "parsed") and not constrained:
+        return f"halueval.{data['variant']}"
     if data.get("variant") == "decontam":
         return "halueval.constrained_decontam" if constrained else "halueval.decontam"
     return "halueval.constrained" if constrained else "halueval"
@@ -352,6 +399,7 @@ def parse_run_dir(
     *,
     is_primary: PrimaryPredicate = _default_is_primary,
     benchmarks: list[str] | None = None,
+    variants_overview: bool = False,
 ) -> list[MetricRecord]:
     """Parse every benchmark subfolder present under one run dir.
 
@@ -360,6 +408,11 @@ def parse_run_dir(
     partial run still aggregates. A base name in ``benchmarks`` (``halueval``) selects
     the benchmark and all its variants; a dotted one (``halueval.constrained``) selects
     only that variant — both read the same ``halueval/`` folder.
+
+    ``variants_overview`` (the optional overview, off by default) also reads the sibling
+    ``<base>.<variant>/`` dirs with the base's parser. A record from a sibling dir must route
+    to that dir's name (else it is skipped with a warning), and a variant found both in the
+    base dir and in its sibling dir is an error. With the flag off, sibling dirs are never read.
     """
     run_dir = Path(run_dir)
     names = benchmarks if benchmarks is not None else list(PARSERS)
@@ -369,18 +422,43 @@ def parse_run_dir(
         if parser is None:
             warnings.warn(f"No parser registered for benchmark '{name}'; skipping.", stacklevel=2)
             continue
-        bench_dir = run_dir / name
-        if not bench_dir.is_dir():
-            continue
-        try:
-            parsed = parser(bench_dir, arm, seed, is_primary)
-        except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
-            warnings.warn(f"Failed to parse {name} in {run_dir}: {exc}", stacklevel=2)
-            continue
+        parsed = _parse_dir(parser, run_dir / name, name, run_dir, arm, seed, is_primary)
+        if variants_overview:
+            parsed.extend(_parse_siblings(parser, name, parsed, run_dir, arm, seed, is_primary))
         if benchmarks is not None:
             parsed = [r for r in parsed if benchmark_selected(r.benchmark, benchmarks)]
         records.extend(parsed)
     return records
+
+
+def _parse_dir(parser, bench_dir: Path, name: str, run_dir: Path, arm, seed, is_primary) -> list[MetricRecord]:
+    if not bench_dir.is_dir():
+        return []
+    try:
+        return parser(bench_dir, arm, seed, is_primary)
+    except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+        warnings.warn(f"Failed to parse {name} in {run_dir}: {exc}", stacklevel=3)
+        return []
+
+
+def _parse_siblings(parser, name, flat_records, run_dir, arm, seed, is_primary) -> list[MetricRecord]:
+    """Records of every ``<name>.<variant>/`` dir, each routed to its own dir's name."""
+    flat = {r.benchmark for r in flat_records if r.benchmark != name}
+    out: list[MetricRecord] = []
+    for sibling in sorted(Path(run_dir).glob(f"{name}.*")):
+        if not sibling.is_dir():
+            continue
+        found = _parse_dir(parser, sibling, sibling.name, run_dir, arm, seed, is_primary)
+        stray = sorted({r.benchmark for r in found if r.benchmark != sibling.name})
+        if stray:
+            warnings.warn(f"summary in the wrong variant dir: {sibling} holds {stray}; skipped",
+                          stacklevel=3)
+        found = [r for r in found if r.benchmark == sibling.name]
+        if found and sibling.name in flat:
+            raise ValueError(f"{run_dir}: variant {sibling.name} is in both {name}/ and "
+                             f"{sibling.name}/; keep one location")
+        out.extend(found)
+    return out
 
 
 # --- helpers ---------------------------------------------------------------------

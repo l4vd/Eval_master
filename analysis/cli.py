@@ -80,6 +80,12 @@ def run_analysis(config: AnalysisConfig) -> dict[str, list[Path]]:
         tree = _run_tree(config, build, modified, outdir / MODIFIED,
                          reference=reference, protocol=MODIFIED)
         written.update({f"{MODIFIED}/{kind}": paths for kind, paths in tree.items()})
+    if config.variants_overview:
+        # Optional, descriptive: every arm under every variant, both protocols side by side.
+        from analysis.overview import write_overview
+
+        written["overview"] = write_overview(build.records, outdir / "overview", reference=reference,
+                                             rng_seed=config.rng_seed, plot=config.plot)
     return written
 
 
@@ -183,6 +189,7 @@ def build_config(args: argparse.Namespace) -> AnalysisConfig:
         rng_seed=args.rng_seed,
         mc_method=args.mc_method,
         protocol=args.protocol,
+        variants_overview=args.variants_overview,
     )
 
 
@@ -205,6 +212,11 @@ def main(argv: list[str] | None = None) -> int:
                     help="Which trees to write: original protocols into --out (the layout "
                          "every existing call reads), modified protocols into --out/modified/ "
                          "(only when there are modified records), or both (default).")
+    ap.add_argument("--variants-overview", action="store_true",
+                    help="Optional, descriptive: also read the sibling <bench>.<variant>/ dirs the "
+                         "all-variants overview writes (their records join the modified/ tree) and "
+                         "write --out/overview/ (arm-comparison plots per variant, rank grid, table). "
+                         "Off by default; off leaves every output unchanged.")
     ap.add_argument("--no-compare", action="store_true",
                     help="Aggregate each arm only; skip cross-arm comparison.")
     ap.add_argument("--no-plot", action="store_true", help="Skip figures.")

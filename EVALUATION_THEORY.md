@@ -287,6 +287,18 @@ The two rules have **opposite length biases**, which is the single most conseque
 this document: a longer answer is more likely to contain a valid phrase by chance, and less
 likely to equal a reference exactly. §7.
 
+**Descriptive re-scorings (overview only).** `src/rescore.py` applies three other rules to
+stored predictions, with no model:
+
+- `strict`: `phrase_match` on the strict phrases;
+- `wordmatch`: the valid phrases at word boundaries;
+- `contains`: the gold answer at word boundaries, reported per answer-length stratum, with
+  exact match for the same rows.
+
+They appear as `faitheval.strict`, `.wordmatch` and `.contains` in the optional overview
+(I8). They show how far each rule moves the arm ordering. None of them replaces the rules
+above. Its `lenient` rule recomputes the original rules and reproduces every stored `correct`.
+
 ### 3.5 Data loading: local JSONL, deliberately
 
 Splits are read from `data/faitheval/<slug>/<split>.jsonl` and built with
@@ -501,6 +513,15 @@ the `raw_judgement` field still scores strictly (the stored `judgement` is alrea
 verdict) but has no lenient scoring available — precisely the gap that field closes.
 `tests/test_scoring.py` pins `parse_strict` against the live copy in `evaluate.py` so the two
 cannot drift.
+
+The optional overview (I8) stores two of these re-scorings as their own descriptive variants
+with `score_results.py --emit-variant`:
+
+- `halueval.lenient`: the lenient parser. Unavailable without `raw_judgement`.
+- `halueval.parsed`: the strict parser, with accuracy over the parsed rows only. Times format
+  compliance, it gives back the strict accuracy.
+
+Neither enters a results table.
 
 ### 4.8 Constrained scoring (opt-in, modified protocol)
 
@@ -730,6 +751,13 @@ analysis reports each under its own benchmark name (`halueval.constrained`, `hal
 `halueval.constrained_decontam`, `faitheval.mc`) in a separate `modified/` tree. There it never
 shares an aggregate, a comparison family or a figure with an original number. With the switches
 off, every original artifact is byte-identical to what it was before the switches existed.
+
+The optional all-variants overview (`variants=[all]`, `RUNNING_NEW_OPTIONS.md` §7) is the one
+place where variants share a root with originals. They sit in dotted sibling dirs
+(`<run>/<bench>.<variant>/`), never in an original dir. The procedure's fixed-depth globs and
+the analysis without `--variants-overview` never read those dirs, so every original artifact and
+every official analysis output stays byte-identical. The overview's figures are descriptive:
+no tests, no multiplicity family, and the deciding metric is unchanged.
 
 I6 keeps the published rule; I8 keeps an alternative from quietly taking its place.
 

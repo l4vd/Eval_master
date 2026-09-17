@@ -58,6 +58,9 @@ class AnalysisConfig:
     #: Which protocol trees to write: "original" (``out/``), "modified" (``out/modified/``)
     #: or "both". See :func:`analysis.model.protocol_of`.
     protocol: str = "both"
+    #: The optional all-variants overview: also read sibling ``<bench>.<variant>/`` dirs and
+    #: write ``out/overview/``. Off by default, and off leaves every output unchanged.
+    variants_overview: bool = False
 
 
 @dataclass
@@ -134,7 +137,7 @@ def build_records(config: AnalysisConfig) -> BuildResult:
         fixed: list[bool] = []
         arm_records = []
         for arm in specs:
-            pairs = discover_arm(arm.spec)
+            pairs = discover_arm(arm.spec, config.variants_overview)
             if not pairs:
                 raise FileNotFoundError(
                     f"Arm '{arm.name}': no run dirs matched spec {arm.spec!r}"
@@ -144,6 +147,7 @@ def build_records(config: AnalysisConfig) -> BuildResult:
                     parse_run_dir(
                         Path(run_dir), arm.name, seed,
                         is_primary=is_primary, benchmarks=config.benchmarks,
+                        variants_overview=config.variants_overview,
                     )
                 )
             all_pairs.extend(pairs)

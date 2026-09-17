@@ -70,6 +70,10 @@ them: `run='[faitheval,ragtruth]'`. To swap a whole group file, use `group=file`
 | `dry_run` | bool | `false` | Print each subprocess command instead of running it. Also downgrades a missing-venv error to a warning so you can inspect commands before installing. |
 | `continue_on_error` | bool | `true` | Keep going if one benchmark exits non-zero. A pass/fail summary prints either way; `false` aborts on the first failure. |
 | `output_dir` | str | `${hydra:runtime.output_dir}` | Root for all artifacts (per-benchmark subfolders under it). Defaults to the timestamped Hydra run dir so runs isolate automatically. |
+| `variants` | list[str] \| null | `null` | **Optional overview, descriptive only.** `null` = today's behaviour, unchanged. `[all]` or a list of variant names ([`analysis/variants.py`](../analysis/variants.py)) switches to the unit planner. Every variant goes to its own `<output_dir>/<bench>.<variant>/`, CPU variants are derived offline, and a status matrix prints first. Refused together with `halueval.scoring`, `halueval.decontam.enabled`, `faitheval.strict_match` or `counterfactual_mc` in `faitheval.tasks`. See [RUNNING_NEW_OPTIONS.md §7](../RUNNING_NEW_OPTIONS.md#7-optional-all-variants-in-one-run-overview). |
+| `resume` | bool | `false` | Overview mode only: skip units that are done (marker present, recorded settings match). |
+| `recompute_stale` | bool | `false` | Overview mode only: re-run GPU units whose recorded settings differ. Otherwise they are listed and the launch exits 2. |
+| `strict_provenance` | bool | `false` | Overview mode only: treat `unverified` units as stale. A unit is `unverified` when a setting could not be checked, e.g. an old FaithEval summary where the dataset is absent. |
 
 ### Hydra block (bottom of `config.yaml`)
 
